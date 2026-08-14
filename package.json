@@ -1,0 +1,25 @@
+{
+  "name": "trustiot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Open-source enterprise IoT data onboarding gateway for Filecoin with optional Hyperledger Fabric governance.",
+  "scripts": {
+  "demo": "node src/demo.js",
+  "test": "node --test tests/core.test.js tests/security.test.js",
+  "test:integration": "node --test tests/fabric-replay.integration.test.js",
+  "verify": "node src/verify.js",
+  "fabric:read": "node src/fabric-read.js",
+  "fabric:register": "node src/fabric-register.js",
+  "fabric:status": "node src/fabric-verify-status.js"
+
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "license": "Apache-2.0",
+  "dependencies": {
+    "@grpc/grpc-js": "^1.14.4",
+    "@hyperledger/fabric-gateway": "^1.12.0"
+  }
+}

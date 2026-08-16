@@ -8,7 +8,9 @@
     "demo": "node src/demo.js",
     "test": "node --test tests/core.test.js tests/security.test.js",
     "test:integration": "node --test tests/fabric-replay.integration.test.js",
-    "verify": "node src/verify.js",
+    "test:synapse": "node --test tests/synapse-storage.integration.test.js",
+
+  "verify": "node src/verify.js",
     "fabric:read": "node src/fabric-read.js",
     "fabric:register": "node src/fabric-register.js",
     "fabric:status": "node src/fabric-verify-status.js"

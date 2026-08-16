@@ -1,3 +1,6 @@
+import {
+  validateDeviceReading
+} from './core/deviceValidation.js';
 import http from 'node:http';
 
 const PORT = 8080;
@@ -14,47 +17,77 @@ const server = http.createServer(
         body += chunk;
       });
 
-      req.on('end', () => {
-        try {
-          const reading =
-            JSON.parse(body);
+      req.on('end', async () => {
+  try {
+    const reading =
+      JSON.parse(body);
 
-          console.log(
-            'ESP32 READING RECEIVED'
-          );
+    const validation =
+      await validateDeviceReading(
+        reading
+      );
 
-          console.log(
-            JSON.stringify(
-              reading,
-              null,
-              2
-            )
-          );
+    console.log(
+      'ESP32 READING VERIFIED'
+    );
 
-          res.writeHead(
-            200,
-            {
-              'Content-Type':
-                'application/json'
-            }
-          );
+    console.log(
+      JSON.stringify(
+        {
+          deviceId:
+            validation.deviceId,
+          sequence:
+            validation.sequence,
+          timestamp:
+            validation.timestamp
+        },
+        null,
+        2
+      )
+    );
 
-          res.end(
-            JSON.stringify({
-              accepted: true
-            })
-          );
-        } catch {
-          res.writeHead(400);
+    res.writeHead(
+      200,
+      {
+        'Content-Type':
+          'application/json'
+      }
+    );
 
-          res.end(
-            JSON.stringify({
-              accepted: false,
-              error: 'invalid JSON'
-            })
-          );
-        }
-      });
+    res.end(
+      JSON.stringify({
+        accepted: true,
+        verified: true,
+        deviceId:
+          validation.deviceId,
+        sequence:
+          validation.sequence
+      })
+    );
+  } catch (error) {
+    console.error(
+      'ESP32 READING REJECTED:',
+      error.message
+    );
+
+    res.writeHead(
+      401,
+      {
+        'Content-Type':
+          'application/json'
+      }
+    );
+
+    res.end(
+      JSON.stringify({
+        accepted: false,
+        verified: false,
+        error:
+          error.message
+      })
+    );
+  }
+});
 
       return;
     }

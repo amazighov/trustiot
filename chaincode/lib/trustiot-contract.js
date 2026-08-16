@@ -27,7 +27,10 @@ async RegisterDataset(
   signatureAlgorithm,
   storageDriver,
   encryption,
-  createdAt
+  createdAt,
+  storageNetwork,
+  pieceCid,
+  ipfsRootCid
 ) {
   if (await this.DatasetExists(ctx, datasetId)) {
     throw new Error(
@@ -74,6 +77,14 @@ if (
     storageRef,
     storageDriver:
       storageDriver || null,
+      storageNetwork:
+  storageNetwork || null,
+
+pieceCid:
+  pieceCid || null,
+
+ipfsRootCid:
+  ipfsRootCid || null,
 
     ciphertextSha256,
 

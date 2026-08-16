@@ -185,7 +185,10 @@ export class FabricGatewayAdapter {
         dataset.signatureAlgorithm ?? '',
         dataset.storageDriver ?? '',
 dataset.encryption ?? '',
-dataset.createdAt ?? ''
+dataset.createdAt ?? '',
+dataset.storageNetwork ?? '',
+dataset.pieceCid ?? '',
+dataset.ipfsRootCid ?? ''
       ]
     }
   );

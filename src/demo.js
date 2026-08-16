@@ -42,7 +42,9 @@ import {
 import {
   FabricLedgerAdapter
 } from './adapters/fabricLedger.js';
-
+import {
+  SynapseStorageAdapter
+} from './adapters/synapseStorage.js';
 async function main() {
   await mkdir('data/work', {
     recursive: true
@@ -86,11 +88,32 @@ async function main() {
   // 3. Storage adapter
   // --------------------------------------------------
 
-  const storage =
-    process.env.STORAGE_DRIVER === 'filecoin'
-      ? new FilecoinPinAdapter()
-      : new LocalStorageAdapter();
+  let storage;
 
+switch (process.env.STORAGE_DRIVER) {
+  case 'synapse':
+    storage =
+      new SynapseStorageAdapter();
+    break;
+
+  case 'filecoin':
+  case 'filecoin-pin':
+    storage =
+      new FilecoinPinAdapter();
+    break;
+
+  case 'local':
+  case undefined:
+  case '':
+    storage =
+      new LocalStorageAdapter();
+    break;
+
+  default:
+    throw new Error(
+      `Unsupported STORAGE_DRIVER: ${process.env.STORAGE_DRIVER}`
+    );
+}
   const storageReceipt =
     await storage.store(
       encryptedPath

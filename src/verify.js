@@ -1,4 +1,7 @@
 import {
+  retrieveStoredArtifact
+} from './core/storageRetrieval.js';
+import {
   getTrustedSigner
 } from './core/signerRegistry.js';
 import { createHash } from 'node:crypto';
@@ -51,9 +54,7 @@ if (ledgerDriver === 'fabric') {
   }
 }
 
-if (!record.cid) {
-  throw new Error(`Dataset has no CID: ${datasetId}`);
-}
+
 
 if (!record.ciphertextSha256) {
   throw new Error(
@@ -95,6 +96,14 @@ const publicKeyPem =
     encryption: record.encryption,
     schemaVersion: record.schemaVersion,
     createdAt: record.createdAt,
+    storageNetwork:
+  record.storageNetwork ?? null,
+
+pieceCid:
+  record.pieceCid ?? null,
+
+ipfsRootCid:
+  record.ipfsRootCid ?? null,
 
     // The manifest was originally signed before
     // verification happened.
@@ -128,23 +137,22 @@ const publicKeyPem =
   );
 }
 
-const url = `https://dweb.link/ipfs/${record.cid}`;
-
-console.log(`Dataset: ${datasetId}`);
-console.log(`Ledger driver: ${ledgerDriver}`);
-console.log(`Retrieving: ${url}`);
-
-const response = await fetch(url);
-
-if (!response.ok) {
-  throw new Error(
-    `Retrieval failed: ${response.status} ${response.statusText}`
-  );
-}
-
-const bytes = Buffer.from(
-  await response.arrayBuffer()
+console.log(
+  `Dataset: ${datasetId}`
 );
+
+console.log(
+  `Ledger driver: ${ledgerDriver}`
+);
+
+console.log(
+  `Storage driver: ${record.storageDriver}`
+);
+
+const bytes =
+  await retrieveStoredArtifact(
+    record
+  );
 
 const actualSha256 = createHash('sha256')
   .update(bytes)
@@ -176,13 +184,28 @@ if (ledgerDriver === 'fabric') {
   const verificationRecord = {
     recordType: 'verification',
     datasetId,
-    cid: record.cid,
+   storageDriver:
+  record.storageDriver,
+
+storageRef:
+  record.storageRef,
+
+pieceCid:
+  record.pieceCid ?? null,
+
+ipfsRootCid:
+  record.ipfsRootCid ?? null,
+
+verificationSource:
+  `${record.storageDriver}-retrieval`,
     expectedSha256,
     actualSha256,
     verificationStatus,
-    verificationSource: 'ipfs-retrieval',
+    
     verifiedAt: new Date().toISOString()
   };
+ 
+ 
 
   await appendFile(
     'data/local-ledger.jsonl',
@@ -194,22 +217,40 @@ if (ledgerDriver === 'fabric') {
 
 console.log(
   JSON.stringify(
-    {
-      datasetId,
-      ledgerDriver,
-      cid: record.cid,
-      storedSignatureValid,
-      expectedSha256,
-      actualSha256,
-      verificationStatus,
-      retrievedArtifact: outputPath,
-      governanceUpdate
-    },
-    null,
-    2
-  )
-);
+    
+      {
+  datasetId,
+  ledgerDriver,
 
-if (!verified) {
-  process.exitCode = 2;
-}
+  storageDriver:
+    record.storageDriver,
+
+  storageNetwork:
+    record.storageNetwork ?? null,
+
+  storageRef:
+    record.storageRef,
+
+  pieceCid:
+    record.pieceCid ?? null,
+
+  ipfsRootCid:
+    record.ipfsRootCid ?? null,
+
+  cid:
+    record.cid ?? null,
+
+  storedSignatureValid,
+  expectedSha256,
+  actualSha256,
+  verificationStatus,
+  retrievedArtifact:
+    outputPath,
+  governanceUpdate
+},
+null, 
+2 
+) 
+); 
+if (!verified)
+   { process.exitCode = 2; }

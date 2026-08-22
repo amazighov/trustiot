@@ -1,5 +1,16 @@
+import {
+  appendFile,
+  mkdir
+} from 'node:fs/promises';
+
 import { createHash } from 'node:crypto';
-import { readFile, readdir, stat } from 'node:fs/promises';
+import {
+  readFile,
+  readdir,
+  stat,
+  
+
+} from 'node:fs/promises';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
 
@@ -172,11 +183,85 @@ const expectedFileSha256 =
   createHash('sha256')
     .update(originalBytes)
     .digest('hex');
+// ----------------------------------------------------
+// Deduplication
+// ----------------------------------------------------
 
+const ledgerDir =
+  path.resolve('data/ledger');
+
+const ledgerPath =
+  path.join(
+    ledgerDir,
+    'synapse-batches.jsonl'
+  );
+
+await mkdir(
+  ledgerDir,
+  {
+    recursive: true
+  }
+);
+
+let previousRecords = [];
+
+try {
+  const ledgerContent =
+    await readFile(
+      ledgerPath,
+      'utf8'
+    );
+
+  previousRecords =
+    ledgerContent
+      .split('\n')
+      .filter(Boolean)
+      .map(line => JSON.parse(line));
+
+} catch (error) {
+  if (error.code !== 'ENOENT') {
+    throw error;
+  }
+}
+
+const existingRecord =
+  previousRecords.find(
+    record =>
+      record.fileSha256 === expectedFileSha256 &&
+      record.storageVerified === true
+  );
+
+if (existingRecord) {
+  console.log(
+    '\nBatch already verified and recorded.'
+  );
+
+  console.log(
+    'Artifact:',
+    existingRecord.artifact
+  );
+
+  console.log(
+    'PieceCID:',
+    existingRecord.pieceCid
+  );
+
+  console.log(
+    'File SHA-256:',
+    existingRecord.fileSha256
+  );
+
+  console.log(
+    'Skipping Synapse upload.'
+  );
+
+  process.exit(0);
+}
 
 // ----------------------------------------------------
 // Display local verification
 // ----------------------------------------------------
+
 
 console.log(
   'TrustIoT batch:',
@@ -391,6 +476,87 @@ const result = {
   storageVerified
 };
 
+ 
+
+await mkdir(
+  ledgerDir,
+  {
+    recursive: true
+  }
+);
+
+
+ 
+  
+
+const ledgerRecord = {
+  recordType:
+    'trustiot.storage.receipt.v1',
+
+  recordedAt:
+    new Date().toISOString(),
+
+  artifact:
+    selected.file,
+
+  deviceId:
+    artifact.deviceId,
+
+  sensor:
+    artifact.sensor,
+
+  batchStartedAt:
+    artifact.batchStartedAt,
+
+  batchEndedAt:
+    artifact.batchEndedAt,
+
+  readingCount:
+    artifact.readingCount,
+
+  payloadSha256:
+    artifact.sha256,
+
+  fileSha256:
+    expectedFileSha256,
+
+  pieceCid:
+    receipt.pieceCid,
+
+  network:
+    receipt.network,
+
+  requestedCopies:
+    receipt.requestedCopies,
+
+  complete:
+    receipt.complete,
+
+  failedAttempts:
+    receipt.failedAttempts,
+
+  uploadLatencyMs:
+    result.uploadLatencyMs,
+
+  retrievalLatencyMs:
+    result.retrievalLatencyMs,
+
+  totalLatencyMs:
+    result.totalLatencyMs,
+
+  storageVerified:
+    storageVerified
+};
+
+await appendFile(
+  ledgerPath,
+  JSON.stringify(ledgerRecord) + '\n'
+);
+
+console.log(
+  'Ledger record appended:',
+  ledgerPath
+);
 
 console.log(
   JSON.stringify(

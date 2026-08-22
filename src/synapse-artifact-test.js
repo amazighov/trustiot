@@ -12,7 +12,10 @@ import {
 } from './core/storageRetrieval.js';
 
 
-// Support the existing .env variable name too
+// ----------------------------------------------------
+// Environment
+// ----------------------------------------------------
+
 if (
   !process.env.SYNAPSE_PRIVATE_KEY &&
   process.env.PRIVATE_KEY
@@ -28,13 +31,12 @@ if (!process.env.SYNAPSE_PRIVATE_KEY) {
 }
 
 
+// ----------------------------------------------------
+// Find latest batch artifact
+// ----------------------------------------------------
+
 const artifactsDir =
-  path.resolve('artifacts');
-
-
-// ----------------------------------------------------
-// Find latest TrustIoT sensor artifact
-// ----------------------------------------------------
+  path.resolve('artifacts/batches');
 
 const files =
   (await readdir(artifactsDir))
@@ -44,7 +46,7 @@ const files =
 
 if (files.length === 0) {
   throw new Error(
-    'No artifacts found in artifacts/'
+    'No batch artifacts found in artifacts/batches'
   );
 }
 
@@ -78,7 +80,7 @@ const selected =
 
 
 // ----------------------------------------------------
-// Read and validate artifact
+// Read batch artifact
 // ----------------------------------------------------
 
 const originalBytes =
@@ -91,9 +93,14 @@ const artifact =
     originalBytes.toString('utf8')
   );
 
+
+// ----------------------------------------------------
+// Validate batch structure
+// ----------------------------------------------------
+
 if (
   artifact.schema !==
-  'trustiot.sensor.v1'
+  'trustiot.sensor.batch.v1'
 ) {
   throw new Error(
     `Unexpected schema: ${artifact.schema}`
@@ -101,35 +108,50 @@ if (
 }
 
 if (
-  !artifact.payload ||
+  !artifact.deviceId ||
+  !artifact.sensor ||
+  !Array.isArray(artifact.readings) ||
+  !Number.isInteger(artifact.readingCount) ||
   !artifact.sha256
 ) {
   throw new Error(
-    'Invalid TrustIoT artifact'
+    'Invalid TrustIoT batch artifact'
+  );
+}
+
+if (
+  artifact.readingCount !==
+  artifact.readings.length
+) {
+  throw new Error(
+    'readingCount does not match readings.length'
   );
 }
 
 
-// Reproduce the canonical payload used by receiver.js
+// ----------------------------------------------------
+// Verify batch payload SHA-256
+// ----------------------------------------------------
+
 const canonicalPayload =
   JSON.stringify({
     deviceId:
-      artifact.payload.deviceId,
+      artifact.deviceId,
 
     sensor:
-      artifact.payload.sensor,
+      artifact.sensor,
 
-    temperature:
-      artifact.payload.temperature,
+    batchStartedAt:
+      artifact.batchStartedAt,
 
-    humidity:
-      artifact.payload.humidity,
+    batchEndedAt:
+      artifact.batchEndedAt,
 
-    pressure:
-      artifact.payload.pressure,
+    readingCount:
+      artifact.readingCount,
 
-    timestamp:
-      artifact.payload.timestamp
+    readings:
+      artifact.readings
   });
 
 const calculatedPayloadSha256 =
@@ -142,31 +164,58 @@ const payloadVerified =
   artifact.sha256;
 
 
-// Hash of the complete JSON artifact file
+// ----------------------------------------------------
+// Hash complete artifact file
+// ----------------------------------------------------
+
 const expectedFileSha256 =
   createHash('sha256')
     .update(originalBytes)
     .digest('hex');
 
 
+// ----------------------------------------------------
+// Display local verification
+// ----------------------------------------------------
+
 console.log(
-  'TrustIoT artifact:',
+  'TrustIoT batch:',
   selected.file
 );
 
 console.log(
   'Device:',
-  artifact.payload.deviceId
+  artifact.deviceId
 );
 
 console.log(
   'Sensor:',
-  artifact.payload.sensor
+  artifact.sensor
+);
+
+console.log(
+  'Readings:',
+  artifact.readingCount
+);
+
+console.log(
+  'Batch started:',
+  artifact.batchStartedAt
+);
+
+console.log(
+  'Batch ended:',
+  artifact.batchEndedAt
 );
 
 console.log(
   'Payload SHA-256:',
   artifact.sha256
+);
+
+console.log(
+  'Calculated SHA-256:',
+  calculatedPayloadSha256
 );
 
 console.log(
@@ -177,7 +226,7 @@ console.log(
 
 if (!payloadVerified) {
   throw new Error(
-    'Artifact payload SHA-256 verification failed before upload'
+    'Batch payload SHA-256 verification failed before upload'
   );
 }
 
@@ -205,7 +254,7 @@ const uploadEnd =
 
 
 // ----------------------------------------------------
-// Synapse retrieval
+// Build retrieval record
 // ----------------------------------------------------
 
 const record = {
@@ -227,6 +276,11 @@ const record = {
   ipfsRootCid:
     null
 };
+
+
+// ----------------------------------------------------
+// Retrieve from Synapse
+// ----------------------------------------------------
 
 const retrievalStart =
   performance.now();
@@ -257,80 +311,99 @@ const totalEnd =
   performance.now();
 
 
+// ----------------------------------------------------
+// Final result
+// ----------------------------------------------------
+
+const result = {
+  test:
+    'trustiot.sensor.batch.synapse.v1',
+
+  artifact:
+    selected.file,
+
+  schema:
+    artifact.schema,
+
+  deviceId:
+    artifact.deviceId,
+
+  sensor:
+    artifact.sensor,
+
+  batchStartedAt:
+    artifact.batchStartedAt,
+
+  batchEndedAt:
+    artifact.batchEndedAt,
+
+  readingCount:
+    artifact.readingCount,
+
+  payloadSha256:
+    artifact.sha256,
+
+  calculatedPayloadSha256,
+
+  payloadVerifiedBeforeUpload:
+    payloadVerified,
+
+  artifactSizeBytes:
+    originalBytes.length,
+
+  network:
+    receipt.network,
+
+  pieceCid:
+    receipt.pieceCid,
+
+  requestedCopies:
+    receipt.requestedCopies,
+
+  complete:
+    receipt.complete,
+
+  failedAttempts:
+    receipt.failedAttempts,
+
+  uploadLatencyMs:
+    Math.round(
+      uploadEnd -
+      uploadStart
+    ),
+
+  retrievalLatencyMs:
+    Math.round(
+      retrievalEnd -
+      retrievalStart
+    ),
+
+  totalLatencyMs:
+    Math.round(
+      totalEnd -
+      totalStart
+    ),
+
+  expectedFileSha256,
+
+  actualFileSha256,
+
+  storageVerified
+};
+
+
 console.log(
   JSON.stringify(
-    {
-      test:
-        'trustiot.sensor.synapse.v1',
-
-      artifact:
-        selected.file,
-
-      schema:
-        artifact.schema,
-
-      deviceId:
-        artifact.payload.deviceId,
-
-      sensor:
-        artifact.payload.sensor,
-
-      sensorTimestamp:
-        artifact.payload.timestamp,
-
-      payloadSha256:
-        artifact.sha256,
-
-      payloadVerifiedBeforeUpload:
-        payloadVerified,
-
-      artifactSizeBytes:
-        originalBytes.length,
-
-      network:
-        receipt.network,
-
-      pieceCid:
-        receipt.pieceCid,
-
-      requestedCopies:
-        receipt.requestedCopies,
-
-      complete:
-        receipt.complete,
-
-      failedAttempts:
-        receipt.failedAttempts,
-
-      uploadLatencyMs:
-        Math.round(
-          uploadEnd -
-          uploadStart
-        ),
-
-      retrievalLatencyMs:
-        Math.round(
-          retrievalEnd -
-          retrievalStart
-        ),
-
-      totalLatencyMs:
-        Math.round(
-          totalEnd -
-          totalStart
-        ),
-
-      expectedFileSha256,
-
-      actualFileSha256,
-
-      storageVerified
-    },
+    result,
     null,
     2
   )
 );
 
+
+// ----------------------------------------------------
+// Exit status
+// ----------------------------------------------------
 
 if (!storageVerified) {
   process.exitCode = 2;

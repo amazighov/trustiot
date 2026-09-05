@@ -1,14 +1,12 @@
-import {
-  appendFile,
-  mkdir
-} from 'node:fs/promises';
+
 
 import { createHash } from 'node:crypto';
 import {
   readFile,
   readdir,
   stat,
-  
+  appendFile,
+  mkdir,
 
 } from 'node:fs/promises';
 import path from 'node:path';
@@ -49,45 +47,63 @@ if (!process.env.SYNAPSE_PRIVATE_KEY) {
 const artifactsDir =
   path.resolve('artifacts/batches');
 
-const files =
-  (await readdir(artifactsDir))
-    .filter(file =>
-      file.endsWith('.json')
+const requestedPath = process.argv[2];
+
+let selected;
+
+if (requestedPath) {
+  const filePath =
+    path.resolve(requestedPath);
+
+  const info =
+    await stat(filePath);
+
+  selected = {
+    file: path.basename(filePath),
+    filePath,
+    mtimeMs: info.mtimeMs
+  };
+} else {
+  const files =
+    (await readdir(artifactsDir))
+      .filter(file =>
+        file.endsWith('.json')
+      );
+
+  if (files.length === 0) {
+    throw new Error(
+      'No batch artifacts found in artifacts/batches'
+    );
+  }
+
+  const candidates =
+    await Promise.all(
+      files.map(async file => {
+        const filePath =
+          path.join(
+            artifactsDir,
+            file
+          );
+
+        const info =
+          await stat(filePath);
+
+        return {
+          file,
+          filePath,
+          mtimeMs: info.mtimeMs
+        };
+      })
     );
 
-if (files.length === 0) {
-  throw new Error(
-    'No batch artifacts found in artifacts/batches'
+  candidates.sort(
+    (a, b) =>
+      b.mtimeMs - a.mtimeMs
   );
+
+  selected =
+    candidates[0];
 }
-
-const candidates =
-  await Promise.all(
-    files.map(async file => {
-      const filePath =
-        path.join(
-          artifactsDir,
-          file
-        );
-
-      const info =
-        await stat(filePath);
-
-      return {
-        file,
-        filePath,
-        mtimeMs: info.mtimeMs
-      };
-    })
-  );
-
-candidates.sort(
-  (a, b) =>
-    b.mtimeMs - a.mtimeMs
-);
-
-const selected =
-  candidates[0];
 
 
 // ----------------------------------------------------
@@ -144,6 +160,19 @@ if (
 // Verify batch payload SHA-256
 // ----------------------------------------------------
 
+// ----------------------------------------------------
+// Verify batch payload SHA-256
+// ----------------------------------------------------
+
+if (
+  artifact.batchStartedAt < 1700000000 ||
+  artifact.batchEndedAt < 1700000000
+) {
+  throw new Error(
+    'Invalid batch timestamp - refusing Synapse upload'
+  );
+}
+
 const canonicalPayload =
   JSON.stringify({
     deviceId:
@@ -173,7 +202,6 @@ const calculatedPayloadSha256 =
 const payloadVerified =
   calculatedPayloadSha256 ===
   artifact.sha256;
-
 
 // ----------------------------------------------------
 // Hash complete artifact file

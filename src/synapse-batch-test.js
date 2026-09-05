@@ -1,16 +1,20 @@
+import {
+  createHash
+} from 'node:crypto';
 
-
-import { createHash } from 'node:crypto';
 import {
   readFile,
   readdir,
   stat,
   appendFile,
-  mkdir,
-
+  mkdir
 } from 'node:fs/promises';
+
 import path from 'node:path';
-import { performance } from 'node:perf_hooks';
+
+import {
+  performance
+} from 'node:perf_hooks';
 
 import {
   SynapseStorageAdapter
@@ -33,7 +37,9 @@ if (
     process.env.PRIVATE_KEY;
 }
 
-if (!process.env.SYNAPSE_PRIVATE_KEY) {
+if (
+  !process.env.SYNAPSE_PRIVATE_KEY
+) {
   throw new Error(
     'SYNAPSE_PRIVATE_KEY is required'
   );
@@ -41,36 +47,58 @@ if (!process.env.SYNAPSE_PRIVATE_KEY) {
 
 
 // ----------------------------------------------------
-// Find latest batch artifact
+// Find requested/latest batch artifact
 // ----------------------------------------------------
 
 const artifactsDir =
-  path.resolve('artifacts/batches');
+  path.resolve(
+    'artifacts/batches'
+  );
 
-const requestedPath = process.argv[2];
+const requestedPath =
+  process.argv[2];
 
 let selected;
 
 if (requestedPath) {
   const filePath =
-    path.resolve(requestedPath);
+    path.resolve(
+      requestedPath
+    );
 
   const info =
-    await stat(filePath);
+    await stat(
+      filePath
+    );
 
   selected = {
-    file: path.basename(filePath),
+    file:
+      path.basename(
+        filePath
+      ),
+
     filePath,
-    mtimeMs: info.mtimeMs
+
+    mtimeMs:
+      info.mtimeMs
   };
+
 } else {
   const files =
-    (await readdir(artifactsDir))
-      .filter(file =>
-        file.endsWith('.json')
-      );
+    (
+      await readdir(
+        artifactsDir
+      )
+    ).filter(
+      file =>
+        file.endsWith(
+          '.json'
+        )
+    );
 
-  if (files.length === 0) {
+  if (
+    files.length === 0
+  ) {
     throw new Error(
       'No batch artifacts found in artifacts/batches'
     );
@@ -78,27 +106,33 @@ if (requestedPath) {
 
   const candidates =
     await Promise.all(
-      files.map(async file => {
-        const filePath =
-          path.join(
-            artifactsDir,
-            file
-          );
+      files.map(
+        async file => {
+          const filePath =
+            path.join(
+              artifactsDir,
+              file
+            );
 
-        const info =
-          await stat(filePath);
+          const info =
+            await stat(
+              filePath
+            );
 
-        return {
-          file,
-          filePath,
-          mtimeMs: info.mtimeMs
-        };
-      })
+          return {
+            file,
+            filePath,
+            mtimeMs:
+              info.mtimeMs
+          };
+        }
+      )
     );
 
   candidates.sort(
     (a, b) =>
-      b.mtimeMs - a.mtimeMs
+      b.mtimeMs -
+      a.mtimeMs
   );
 
   selected =
@@ -117,7 +151,10 @@ const originalBytes =
 
 const artifact =
   JSON.parse(
-    originalBytes.toString('utf8')
+    originalBytes
+      .toString(
+        'utf8'
+      )
   );
 
 
@@ -137,8 +174,12 @@ if (
 if (
   !artifact.deviceId ||
   !artifact.sensor ||
-  !Array.isArray(artifact.readings) ||
-  !Number.isInteger(artifact.readingCount) ||
+  !Array.isArray(
+    artifact.readings
+  ) ||
+  !Number.isInteger(
+    artifact.readingCount
+  ) ||
   !artifact.sha256
 ) {
   throw new Error(
@@ -157,21 +198,30 @@ if (
 
 
 // ----------------------------------------------------
-// Verify batch payload SHA-256
-// ----------------------------------------------------
-
-// ----------------------------------------------------
-// Verify batch payload SHA-256
+// Validate batch timestamps
 // ----------------------------------------------------
 
 if (
-  artifact.batchStartedAt < 1700000000 ||
-  artifact.batchEndedAt < 1700000000
+  !Number.isInteger(
+    artifact.batchStartedAt
+  ) ||
+  !Number.isInteger(
+    artifact.batchEndedAt
+  ) ||
+  artifact.batchStartedAt <
+    1700000000 ||
+  artifact.batchEndedAt <
+    1700000000
 ) {
   throw new Error(
     'Invalid batch timestamp - refusing Synapse upload'
   );
 }
+
+
+// ----------------------------------------------------
+// Verify batch payload SHA-256
+// ----------------------------------------------------
 
 const canonicalPayload =
   JSON.stringify({
@@ -195,28 +245,53 @@ const canonicalPayload =
   });
 
 const calculatedPayloadSha256 =
-  createHash('sha256')
-    .update(canonicalPayload)
-    .digest('hex');
+  createHash(
+    'sha256'
+  )
+    .update(
+      canonicalPayload
+    )
+    .digest(
+      'hex'
+    );
 
 const payloadVerified =
   calculatedPayloadSha256 ===
   artifact.sha256;
+
+if (
+  !payloadVerified
+) {
+  throw new Error(
+    'Batch payload SHA-256 verification failed before upload'
+  );
+}
+
 
 // ----------------------------------------------------
 // Hash complete artifact file
 // ----------------------------------------------------
 
 const expectedFileSha256 =
-  createHash('sha256')
-    .update(originalBytes)
-    .digest('hex');
+  createHash(
+    'sha256'
+  )
+    .update(
+      originalBytes
+    )
+    .digest(
+      'hex'
+    );
+
+
 // ----------------------------------------------------
-// Deduplication
+// Ledger / deduplication
 // ----------------------------------------------------
 
 const ledgerDir =
-  path.resolve('data/ledger');
+  path.resolve(
+    'data/ledger'
+  );
 
 const ledgerPath =
   path.join(
@@ -231,7 +306,8 @@ await mkdir(
   }
 );
 
-let previousRecords = [];
+let previousRecords =
+  [];
 
 try {
   const ledgerContent =
@@ -242,12 +318,24 @@ try {
 
   previousRecords =
     ledgerContent
-      .split('\n')
-      .filter(Boolean)
-      .map(line => JSON.parse(line));
+      .split(
+        '\n'
+      )
+      .filter(
+        Boolean
+      )
+      .map(
+        line =>
+          JSON.parse(
+            line
+          )
+      );
 
 } catch (error) {
-  if (error.code !== 'ENOENT') {
+  if (
+    error.code !==
+    'ENOENT'
+  ) {
     throw error;
   }
 }
@@ -255,11 +343,15 @@ try {
 const existingRecord =
   previousRecords.find(
     record =>
-      record.fileSha256 === expectedFileSha256 &&
-      record.storageVerified === true
+      record.fileSha256 ===
+        expectedFileSha256 &&
+      record.storageVerified ===
+        true
   );
 
-if (existingRecord) {
+if (
+  existingRecord
+) {
   console.log(
     '\nBatch already verified and recorded.'
   );
@@ -283,13 +375,15 @@ if (existingRecord) {
     'Skipping Synapse upload.'
   );
 
-  process.exit(0);
+  process.exit(
+    0
+  );
 }
+
 
 // ----------------------------------------------------
 // Display local verification
 // ----------------------------------------------------
-
 
 console.log(
   'TrustIoT batch:',
@@ -337,13 +431,6 @@ console.log(
 );
 
 
-if (!payloadVerified) {
-  throw new Error(
-    'Batch payload SHA-256 verification failed before upload'
-  );
-}
-
-
 // ----------------------------------------------------
 // Synapse upload
 // ----------------------------------------------------
@@ -357,10 +444,114 @@ const totalStart =
 const uploadStart =
   performance.now();
 
-const receipt =
-  await storage.store(
-    selected.filePath
-  );
+let receipt;
+
+try {
+  receipt =
+    await storage.store(
+      selected.filePath
+    );
+
+} catch (error) {
+  // --------------------------------------------------
+  // STORE_FAILED
+  // Data did not reach the provider successfully.
+  // --------------------------------------------------
+
+  if (
+    error?.code ===
+    'SYNAPSE_STORE_FAILED'
+  ) {
+    console.error(
+      JSON.stringify(
+        {
+          test:
+            'trustiot.sensor.batch.synapse.v1',
+
+          artifact:
+            selected.file,
+
+          storageState:
+            'STORE_FAILED',
+
+          retryable:
+            true,
+
+          providerId:
+            error.providerId ??
+            null,
+
+          endpoint:
+            error.endpoint ??
+            null,
+
+          payloadVerifiedBeforeUpload:
+            payloadVerified,
+
+          fileSha256:
+            expectedFileSha256
+        },
+        null,
+        2
+      )
+    );
+
+    process.exit(
+      74
+    );
+  }
+
+  // --------------------------------------------------
+  // STORED_NOT_COMMITTED
+  // Data reached storage, but commit on-chain failed.
+  // --------------------------------------------------
+
+  if (
+    error?.code ===
+    'SYNAPSE_STORED_NOT_COMMITTED'
+  ) {
+    console.error(
+      JSON.stringify(
+        {
+          test:
+            'trustiot.sensor.batch.synapse.v1',
+
+          artifact:
+            selected.file,
+
+          storageState:
+            'STORED_NOT_COMMITTED',
+
+          retryable:
+            true,
+
+          providerId:
+            error.providerId ??
+            null,
+
+          endpoint:
+            error.endpoint ??
+            null,
+
+          payloadVerifiedBeforeUpload:
+            payloadVerified,
+
+          fileSha256:
+            expectedFileSha256
+        },
+        null,
+        2
+      )
+    );
+
+    process.exit(
+      75
+    );
+  }
+
+  // Unknown error.
+  throw error;
+}
 
 const uploadEnd =
   performance.now();
@@ -412,9 +603,15 @@ const retrievalEnd =
 // ----------------------------------------------------
 
 const actualFileSha256 =
-  createHash('sha256')
-    .update(retrieved)
-    .digest('hex');
+  createHash(
+    'sha256'
+  )
+    .update(
+      retrieved
+    )
+    .digest(
+      'hex'
+    );
 
 const storageVerified =
   expectedFileSha256 ===
@@ -479,6 +676,14 @@ const result = {
   failedAttempts:
     receipt.failedAttempts,
 
+  storageState:
+    receipt.storageState ??
+    (
+      receipt.complete
+        ? 'COMMITTED'
+        : 'PARTIAL'
+    ),
+
   uploadLatencyMs:
     Math.round(
       uploadEnd -
@@ -504,25 +709,18 @@ const result = {
   storageVerified
 };
 
- 
 
-await mkdir(
-  ledgerDir,
-  {
-    recursive: true
-  }
-);
-
-
- 
-  
+// ----------------------------------------------------
+// Append verified receipt to ledger
+// ----------------------------------------------------
 
 const ledgerRecord = {
   recordType:
     'trustiot.storage.receipt.v1',
 
   recordedAt:
-    new Date().toISOString(),
+    new Date()
+      .toISOString(),
 
   artifact:
     selected.file,
@@ -563,6 +761,9 @@ const ledgerRecord = {
   failedAttempts:
     receipt.failedAttempts,
 
+  storageState:
+    result.storageState,
+
   uploadLatencyMs:
     result.uploadLatencyMs,
 
@@ -572,13 +773,14 @@ const ledgerRecord = {
   totalLatencyMs:
     result.totalLatencyMs,
 
-  storageVerified:
-    storageVerified
+  storageVerified
 };
 
 await appendFile(
   ledgerPath,
-  JSON.stringify(ledgerRecord) + '\n'
+  JSON.stringify(
+    ledgerRecord
+  ) + '\n'
 );
 
 console.log(
@@ -599,6 +801,9 @@ console.log(
 // Exit status
 // ----------------------------------------------------
 
-if (!storageVerified) {
-  process.exitCode = 2;
+if (
+  !storageVerified
+) {
+  process.exitCode =
+    2;
 }

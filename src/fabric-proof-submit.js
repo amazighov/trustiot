@@ -1,12 +1,18 @@
 import dotenv from 'dotenv';
 
 dotenv.config({
-  override: true
+  override: true,
+  quiet: true
 });
 
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+
+import {
+  performance
+} from 'node:perf_hooks';
+
 import grpc from '@grpc/grpc-js';
 
 import {
@@ -45,17 +51,50 @@ for (const key of requiredEnv) {
 
 
 // ----------------------------------------------------
-// Read latest verified TrustIoT receipt
+// Ledger paths
 // ----------------------------------------------------
 
-const ledgerPath =
+const synapseLedgerPath =
   path.resolve(
     'data/ledger/synapse-batches.jsonl'
   );
 
+const fabricLedgerDir =
+  path.resolve(
+    'data/ledger'
+  );
+
+const fabricLedgerPath =
+  path.join(
+    fabricLedgerDir,
+    'fabric-proofs.jsonl'
+  );
+
+fs.mkdirSync(
+  fabricLedgerDir,
+  {
+    recursive: true
+  }
+);
+
+
+// ----------------------------------------------------
+// Read verified Synapse receipts
+// ----------------------------------------------------
+
+if (
+  !fs.existsSync(
+    synapseLedgerPath
+  )
+) {
+  throw new Error(
+    `Synapse ledger not found: ${synapseLedgerPath}`
+  );
+}
+
 const ledgerContent =
   fs.readFileSync(
-    ledgerPath,
+    synapseLedgerPath,
     'utf8'
   );
 
@@ -70,7 +109,9 @@ const records =
 
 const requestedArtifact =
   process.argv[2]
-    ? path.basename(process.argv[2])
+    ? path.basename(
+        process.argv[2]
+      )
     : null;
 
 let latest;
@@ -81,8 +122,10 @@ if (requestedArtifact) {
       .reverse()
       .find(
         record =>
-          record.artifact === requestedArtifact &&
-          record.storageVerified === true
+          record.artifact ===
+            requestedArtifact &&
+          record.storageVerified ===
+            true
       );
 
   if (!latest) {
@@ -90,13 +133,15 @@ if (requestedArtifact) {
       `No verified Synapse receipt found for artifact: ${requestedArtifact}`
     );
   }
+
 } else {
   latest =
     [...records]
       .reverse()
       .find(
         record =>
-          record.storageVerified === true
+          record.storageVerified ===
+          true
       );
 
   if (!latest) {
@@ -157,6 +202,43 @@ const proof =
 
 
 // ----------------------------------------------------
+// Check existing local Fabric receipt
+// ----------------------------------------------------
+
+let previousFabricRecords = [];
+
+if (
+  fs.existsSync(
+    fabricLedgerPath
+  )
+) {
+  const fabricLedgerContent =
+    fs.readFileSync(
+      fabricLedgerPath,
+      'utf8'
+    );
+
+  previousFabricRecords =
+    fabricLedgerContent
+      .split('\n')
+      .filter(Boolean)
+      .map(
+        line =>
+          JSON.parse(line)
+      );
+}
+
+const existingFabricReceipt =
+  previousFabricRecords.find(
+    record =>
+      record.proofSha256 ===
+        proof.proofSha256 &&
+      record.fabricVerified ===
+        true
+  );
+
+
+// ----------------------------------------------------
 // Identity
 // ----------------------------------------------------
 
@@ -205,9 +287,11 @@ const tlsRootCert =
 const client =
   new grpc.Client(
     process.env.FABRIC_PEER_ENDPOINT,
+
     grpc.credentials.createSsl(
       tlsRootCert
     ),
+
     {
       'grpc.ssl_target_name_override':
         process.env.FABRIC_PEER_HOST_ALIAS
@@ -231,26 +315,62 @@ const gateway =
       hash.sha256
   });
 
+
+// ----------------------------------------------------
+// Fabric processing
+// ----------------------------------------------------
+
+const totalStart =
+  performance.now();
+
+let existsCheckLatencyMs =
+  null;
+
+let submitLatencyMs =
+  null;
+
+let readbackLatencyMs =
+  null;
+
+let alreadyExisted =
+  false;
+
+let fabricVerified =
+  false;
+
 try {
   const network =
     gateway.getNetwork(
       process.env.FABRIC_CHANNEL
     );
-const contract =
-  network.getContract(
-    process.env.FABRIC_CHAINCODE,
-    'TrustIoTProofContract'
-  );
-  
+
+  const contract =
+    network.getContract(
+      process.env.FABRIC_CHAINCODE,
+      'TrustIoTProofContract'
+    );
+
 
   // --------------------------------------------------
-  // Deduplication
+  // Deduplication check
   // --------------------------------------------------
+
+  const existsStart =
+    performance.now();
 
   const existsBytes =
     await contract.evaluateTransaction(
       'ProofExists',
       proof.proofSha256
+    );
+
+  const existsEnd =
+    performance.now();
+
+  existsCheckLatencyMs =
+    Math.round(
+      existsEnd -
+      existsStart
     );
 
   const exists =
@@ -263,6 +383,14 @@ const contract =
       ) ===
       'true';
 
+  alreadyExisted =
+    exists;
+
+
+  // --------------------------------------------------
+  // Register new proof
+  // --------------------------------------------------
+
   if (exists) {
     console.log(
       'Fabric proof already exists.'
@@ -274,9 +402,8 @@ const contract =
     );
 
   } else {
-    // ------------------------------------------------
-    // Register proof
-    // ------------------------------------------------
+    const submitStart =
+      performance.now();
 
     const result =
       await contract.submitTransaction(
@@ -288,7 +415,8 @@ const contract =
 
         proof.deviceId,
 
-        proof.sensor ?? '',
+        proof.sensor ??
+          '',
 
         String(
           proof.batchStartedAt
@@ -308,13 +436,24 @@ const contract =
 
         proof.storage.pieceCid,
 
-        proof.storage.network ?? '',
+        proof.storage.network ??
+          '',
 
-        proof.storage.storageState ?? '',
+        proof.storage.storageState ??
+          '',
 
         String(
           proof.storage.storageVerified
         )
+      );
+
+    const submitEnd =
+      performance.now();
+
+    submitLatencyMs =
+      Math.round(
+        submitEnd -
+        submitStart
       );
 
     console.log(
@@ -332,14 +471,27 @@ const contract =
     );
   }
 
+
   // --------------------------------------------------
   // Read back and verify
   // --------------------------------------------------
+
+  const readbackStart =
+    performance.now();
 
   const storedBytes =
     await contract.evaluateTransaction(
       'GetProof',
       proof.proofSha256
+    );
+
+  const readbackEnd =
+    performance.now();
+
+  readbackLatencyMs =
+    Math.round(
+      readbackEnd -
+      readbackStart
     );
 
   const stored =
@@ -353,15 +505,132 @@ const contract =
         )
     );
 
-  const fabricVerified =
+  fabricVerified =
     stored.proofSha256 ===
-    proof.proofSha256;
+      proof.proofSha256 &&
+    stored.fileSha256 ===
+      proof.fileSha256 &&
+    stored.payloadSha256 ===
+      proof.payloadSha256 &&
+    stored.pieceCid ===
+      proof.storage.pieceCid &&
+    stored.storageVerified ===
+      true;
+
+  const totalEnd =
+    performance.now();
+
+  const fabricTotalLatencyMs =
+    Math.round(
+      totalEnd -
+      totalStart
+    );
+
+
+  // --------------------------------------------------
+  // Fabric receipt
+  // --------------------------------------------------
+
+  const fabricReceipt = {
+    recordType:
+      'trustiot.fabric.receipt.v1',
+
+    recordedAt:
+      new Date()
+        .toISOString(),
+
+    artifact:
+      proof.artifact,
+
+    deviceId:
+      proof.deviceId,
+
+    sensor:
+      proof.sensor,
+
+    proofSha256:
+      proof.proofSha256,
+
+    payloadSha256:
+      proof.payloadSha256,
+
+    fileSha256:
+      proof.fileSha256,
+
+    pieceCid:
+      proof.storage.pieceCid,
+
+    storageNetwork:
+      proof.storage.network,
+
+    storageState:
+      proof.storage.storageState,
+
+    channel:
+      process.env.FABRIC_CHANNEL,
+
+    chaincode:
+      process.env.FABRIC_CHAINCODE,
+
+    mspId:
+      process.env.FABRIC_MSP_ID,
+
+    alreadyExisted,
+
+    existsCheckLatencyMs,
+
+    submitLatencyMs,
+
+    readbackLatencyMs,
+
+    totalLatencyMs:
+      fabricTotalLatencyMs,
+
+    fabricVerified
+  };
+
+
+  // --------------------------------------------------
+  // Persist receipt only once per verified proof
+  // --------------------------------------------------
+
+  if (
+    fabricVerified &&
+    !existingFabricReceipt
+  ) {
+    fs.appendFileSync(
+      fabricLedgerPath,
+      JSON.stringify(
+        fabricReceipt
+      ) + '\n'
+    );
+
+    console.log(
+      'Fabric receipt appended:',
+      fabricLedgerPath
+    );
+  } else if (
+    fabricVerified &&
+    existingFabricReceipt
+  ) {
+    console.log(
+      'Fabric receipt already recorded locally.'
+    );
+  }
+
+
+  // --------------------------------------------------
+  // Final result
+  // --------------------------------------------------
 
   console.log(
     JSON.stringify(
       {
         test:
           'trustiot.fabric.proof.submit.v1',
+
+        artifact:
+          proof.artifact,
 
         channel:
           process.env.FABRIC_CHANNEL,
@@ -375,6 +644,17 @@ const contract =
         pieceCid:
           proof.storage.pieceCid,
 
+        alreadyExisted,
+
+        existsCheckLatencyMs,
+
+        submitLatencyMs,
+
+        readbackLatencyMs,
+
+        totalLatencyMs:
+          fabricTotalLatencyMs,
+
         fabricVerified
       },
       null,
@@ -383,7 +663,8 @@ const contract =
   );
 
   if (!fabricVerified) {
-    process.exitCode = 2;
+    process.exitCode =
+      2;
   }
 
 } finally {

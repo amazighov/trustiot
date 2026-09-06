@@ -9,8 +9,7 @@
     "test": "node --test tests/core.test.js tests/security.test.js",
     "test:integration": "node --test tests/fabric-replay.integration.test.js",
     "test:synapse": "node --test tests/synapse-storage.integration.test.js",
-
-  "verify": "node src/verify.js",
+    "verify": "node src/verify.js",
     "fabric:read": "node src/fabric-read.js",
     "fabric:register": "node src/fabric-register.js",
     "fabric:status": "node src/fabric-verify-status.js"
@@ -22,7 +21,8 @@
   "dependencies": {
     "@filoz/synapse-sdk": "^1.1.1",
     "@grpc/grpc-js": "^1.14.4",
-    "@hyperledger/fabric-gateway": "^1.12.0",
+    "@hyperledger/fabric-gateway": "^1.12.1",
+    "dotenv": "^17.4.2",
     "viem": "^2.55.16"
   }
 }

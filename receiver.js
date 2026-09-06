@@ -20,7 +20,9 @@ const MAX_RETRIES = 5;
 const RETRY_DELAY_MS = 30000;
 
 const batchesDir =
-  path.resolve('./artifacts/batches');
+  path.resolve(
+    './artifacts/batches'
+  );
 
 fs.mkdirSync(
   batchesDir,
@@ -77,7 +79,77 @@ function canonicalReading(reading) {
 
 
 // ----------------------------------------------------
-// Queue a new batch
+// Run Node child process safely
+// ----------------------------------------------------
+
+function runNodeScript(
+  scriptPath,
+  args = []
+) {
+  return new Promise(
+    resolve => {
+      const child =
+        spawn(
+          process.execPath,
+          [
+            scriptPath,
+            ...args
+          ],
+          {
+            stdio:
+              'inherit',
+
+            env:
+              process.env
+          }
+        );
+
+      let finished =
+        false;
+
+      child.on(
+        'error',
+        error => {
+          if (finished) {
+            return;
+          }
+
+          finished =
+            true;
+
+          resolve({
+            code:
+              null,
+
+            error
+          });
+        }
+      );
+
+      child.on(
+        'exit',
+        code => {
+          if (finished) {
+            return;
+          }
+
+          finished =
+            true;
+
+          resolve({
+            code,
+            error:
+              null
+          });
+        }
+      );
+    }
+  );
+}
+
+
+// ----------------------------------------------------
+// Queue new batch
 // ----------------------------------------------------
 
 function enqueueBatch(
@@ -103,7 +175,7 @@ function enqueueBatch(
   );
 
   console.log(
-    'Batch queued for Synapse:',
+    'Batch queued for TrustIoT processing:',
     path.basename(filePath),
     `attempt=${attempt + 1}`
   );
@@ -117,7 +189,9 @@ function enqueueBatch(
 // ----------------------------------------------------
 
 function createBatch() {
-  if (readings.length === 0) {
+  if (
+    readings.length === 0
+  ) {
     throw new Error(
       'Cannot create empty batch'
     );
@@ -165,18 +239,23 @@ function createBatch() {
 
   const sha256 =
     crypto
-      .createHash('sha256')
+      .createHash(
+        'sha256'
+      )
       .update(
         canonicalPayload
       )
-      .digest('hex');
+      .digest(
+        'hex'
+      );
 
   const artifact = {
     schema:
       'trustiot.sensor.batch.v1',
 
     createdAt:
-      new Date().toISOString(),
+      new Date()
+        .toISOString(),
 
     ...batchPayload,
 
@@ -228,7 +307,7 @@ function createBatch() {
     '================================\n'
   );
 
-  // Artifact is already safely on disk.
+  // Artifact is now safely stored on disk.
   readings = [];
 
   enqueueBatch(
@@ -243,11 +322,13 @@ function createBatch() {
 
 
 // ----------------------------------------------------
-// Process next Synapse job
+// Process next TrustIoT job
 // ----------------------------------------------------
 
-function processNextBatch() {
-  if (processingBatch) {
+async function processNextBatch() {
+  if (
+    processingBatch
+  ) {
     return;
   }
 
@@ -280,10 +361,12 @@ function processNextBatch() {
     );
 
     processNextBatch();
+
     return;
   }
 
-  processingBatch = true;
+  processingBatch =
+    true;
 
   persistentQueue.markProcessing(
     jobId
@@ -299,7 +382,9 @@ function processNextBatch() {
 
   console.log(
     'Batch:',
-    path.basename(filePath)
+    path.basename(
+      filePath
+    )
   );
 
   console.log(
@@ -316,110 +401,285 @@ function processNextBatch() {
     '================================\n'
   );
 
-  const child =
-    spawn(
-      process.execPath,
-      [
-        'src/synapse-batch-test.js',
-        filePath
-      ],
-      {
-        stdio:
-          'inherit',
 
-        env:
-          process.env
-      }
+  // --------------------------------------------------
+  // Stage 1: Synapse / Filecoin
+  // --------------------------------------------------
+
+  const synapseResult =
+    await runNodeScript(
+      'src/synapse-batch-test.js',
+      [
+        filePath
+      ]
     );
 
-  child.on(
-    'error',
-    error => {
-      console.error(
-        'Batch processor failed to start:',
-        error.message
-      );
+  if (
+    synapseResult.error
+  ) {
+    console.error(
+      'Synapse processor failed to start:',
+      synapseResult.error.message
+    );
 
-      processingBatch =
-        false;
+    processingBatch =
+      false;
 
-      retryOrContinue(
-        filePath,
-        attempt,
-        jobId,
-        error.message
-      );
-    }
+    retryOrContinue(
+      filePath,
+      attempt,
+      jobId,
+      `SYNAPSE_START_FAILED: ${synapseResult.error.message}`
+    );
+
+    return;
+  }
+
+
+  // --------------------------------------------------
+  // Synapse store failed
+  // exit 74
+  // --------------------------------------------------
+
+  if (
+    synapseResult.code ===
+    74
+  ) {
+    console.error(
+      '\nSynapse store failed before commit:',
+      path.basename(
+        filePath
+      )
+    );
+
+    console.error(
+      'This is retryable.'
+    );
+
+    processingBatch =
+      false;
+
+    retryOrContinue(
+      filePath,
+      attempt,
+      jobId,
+      'STORE_FAILED'
+    );
+
+    return;
+  }
+
+
+  // --------------------------------------------------
+  // Stored but commit failed
+  // exit 75
+  // --------------------------------------------------
+
+  if (
+    synapseResult.code ===
+    75
+  ) {
+    console.error(
+      '\nSynapse stored the batch but on-chain commit failed:',
+      path.basename(
+        filePath
+      )
+    );
+
+    console.error(
+      'This is retryable.'
+    );
+
+    processingBatch =
+      false;
+
+    retryOrContinue(
+      filePath,
+      attempt,
+      jobId,
+      'STORED_NOT_COMMITTED'
+    );
+
+    return;
+  }
+
+
+  // --------------------------------------------------
+  // Generic Synapse failure
+  // --------------------------------------------------
+
+  if (
+    synapseResult.code !==
+    0
+  ) {
+    console.error(
+      '\nSynapse processing failed:',
+      path.basename(
+        filePath
+      ),
+      'exit code:',
+      synapseResult.code
+    );
+
+    processingBatch =
+      false;
+
+    retryOrContinue(
+      filePath,
+      attempt,
+      jobId,
+      `SYNAPSE_EXIT_${synapseResult.code}`
+    );
+
+    return;
+  }
+
+
+  // --------------------------------------------------
+  // Synapse success
+  // --------------------------------------------------
+
+  console.log(
+    '\nSynapse processing verified successfully:',
+    path.basename(
+      filePath
+    )
   );
 
-  child.on(
-    'exit',
-    code => {
-      processingBatch =
-        false;
 
-      // ----------------------------------------------
-      // Success
-      // ----------------------------------------------
+  // --------------------------------------------------
+  // Stage 2: Hyperledger Fabric proof
+  // --------------------------------------------------
 
-      if (code === 0) {
-        persistentQueue.markSuccess(
-          jobId
-        );
-
-        console.log(
-          '\nBatch processing completed successfully:',
-          path.basename(filePath)
-        );
-
-        processNextBatch();
-
-        return;
-      }
-
-      // ----------------------------------------------
-      // Synapse stored, but commit failed
-      // ----------------------------------------------
-
-      if (code === 75) {
-        console.error(
-          '\nSynapse stored the batch but on-chain commit failed:',
-          path.basename(filePath)
-        );
-
-        console.error(
-          'This is retryable. Scheduling another attempt.'
-        );
-
-        retryOrContinue(
-          filePath,
-          attempt,
-          jobId,
-          'STORED_NOT_COMMITTED'
-        );
-
-        return;
-      }
-
-      // ----------------------------------------------
-      // Generic failure
-      // ----------------------------------------------
-
-      console.error(
-        '\nBatch processing failed:',
-        path.basename(filePath),
-        'exit code:',
-        code
-      );
-
-      retryOrContinue(
-        filePath,
-        attempt,
-        jobId,
-        `exit code ${code}`
-      );
-    }
+  console.log(
+    '\n================================'
   );
+
+  console.log(
+    'Starting automatic Fabric proof processing'
+  );
+
+  console.log(
+    'Batch:',
+    path.basename(
+      filePath
+    )
+  );
+
+  console.log(
+    'Chaincode:',
+    process.env.FABRIC_CHAINCODE ??
+    'trustiot-proof'
+  );
+
+  console.log(
+    '================================\n'
+  );
+
+  const fabricResult =
+    await runNodeScript(
+      'src/fabric-proof-submit.js',
+      [
+        filePath
+      ]
+    );
+
+  if (
+    fabricResult.error
+  ) {
+    console.error(
+      'Fabric proof processor failed to start:',
+      fabricResult.error.message
+    );
+
+    processingBatch =
+      false;
+
+    retryOrContinue(
+      filePath,
+      attempt,
+      jobId,
+      `FABRIC_START_FAILED: ${fabricResult.error.message}`
+    );
+
+    return;
+  }
+
+
+  // --------------------------------------------------
+  // Fabric failure
+  // --------------------------------------------------
+
+  if (
+    fabricResult.code !==
+    0
+  ) {
+    console.error(
+      '\nFabric proof processing failed:',
+      path.basename(
+        filePath
+      ),
+      'exit code:',
+      fabricResult.code
+    );
+
+    processingBatch =
+      false;
+
+    retryOrContinue(
+      filePath,
+      attempt,
+      jobId,
+      `FABRIC_EXIT_${fabricResult.code}`
+    );
+
+    return;
+  }
+
+
+  // --------------------------------------------------
+  // Overall TrustIoT success
+  // --------------------------------------------------
+
+  persistentQueue.markSuccess(
+    jobId
+  );
+
+  processingBatch =
+    false;
+
+  console.log(
+    '\n================================'
+  );
+
+  console.log(
+    'TrustIoT batch completed end-to-end'
+  );
+
+  console.log(
+    'Batch:',
+    path.basename(
+      filePath
+    )
+  );
+
+  console.log(
+    'Synapse: VERIFIED'
+  );
+
+  console.log(
+    'Fabric: VERIFIED'
+  );
+
+  console.log(
+    'Persistent job: COMPLETED'
+  );
+
+  console.log(
+    '================================\n'
+  );
+
+  processNextBatch();
 }
 
 
@@ -448,7 +708,9 @@ function retryOrContinue(
 
     console.error(
       'Maximum retries reached:',
-      path.basename(filePath)
+      path.basename(
+        filePath
+      )
     );
 
     processNextBatch();
@@ -479,7 +741,9 @@ function retryOrContinue(
 
   console.log(
     `Retry scheduled in ${delay / 1000}s:`,
-    path.basename(filePath)
+    path.basename(
+      filePath
+    )
   );
 
   setTimeout(
@@ -509,7 +773,9 @@ function recoverPersistentJobs() {
     persistentQueue
       .recoverPending();
 
-  if (jobs.length === 0) {
+  if (
+    jobs.length === 0
+  ) {
     console.log(
       'No persistent queue jobs to recover'
     );
@@ -521,7 +787,10 @@ function recoverPersistentJobs() {
     `Recovering ${jobs.length} persistent queue job(s)`
   );
 
-  for (const job of jobs) {
+  for (
+    const job
+    of jobs
+  ) {
     if (
       !fs.existsSync(
         job.filePath
@@ -545,7 +814,8 @@ function recoverPersistentJobs() {
         job.filePath,
 
       attempt:
-        job.attempt ?? 0,
+        job.attempt ??
+        0,
 
       jobId:
         job.id
@@ -571,8 +841,10 @@ const server =
   http.createServer(
     (req, res) => {
       if (
-        req.method !== 'POST' ||
-        req.url !== '/sensor'
+        req.method !==
+          'POST' ||
+        req.url !==
+          '/sensor'
       ) {
         res.writeHead(
           404,
@@ -584,20 +856,25 @@ const server =
 
         res.end(
           JSON.stringify({
-            ok: false,
-            error: 'Not found'
+            ok:
+              false,
+
+            error:
+              'Not found'
           })
         );
 
         return;
       }
 
-      let body = '';
+      let body =
+        '';
 
       req.on(
         'data',
         chunk => {
-          body += chunk;
+          body +=
+            chunk;
         }
       );
 
@@ -606,7 +883,9 @@ const server =
         () => {
           try {
             const input =
-              JSON.parse(body);
+              JSON.parse(
+                body
+              );
 
             const requiredFields = [
               'deviceId',
@@ -650,6 +929,7 @@ const server =
                 `Invalid timestamp: ${reading.timestamp}`
               );
             }
+
 
             // ----------------------------------------
             // Basic numeric validation
@@ -766,6 +1046,10 @@ server.listen(
 
     console.log(
       'Persistent private retry queue enabled'
+    );
+
+    console.log(
+      'Automatic Synapse + Fabric proof pipeline enabled'
     );
 
     recoverPersistentJobs();

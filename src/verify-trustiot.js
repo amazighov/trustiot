@@ -1,9 +1,13 @@
-import {
-  spawn
-} from 'child_process';
-
 import fs from 'fs';
 import path from 'path';
+
+import {
+  verifyBatchArtifact
+} from './core/verification/verifyBatch.js';
+
+import {
+  verifyProofChain
+} from './core/verification/verifyProofChain.js';
 
 
 // ----------------------------------------------------
@@ -24,91 +28,12 @@ function fail(
 }
 
 
-function runVerifier(
-  scriptPath,
-  artifactPath
+function status(
+  verified
 ) {
-  return new Promise(
-    resolve => {
-      const child =
-        spawn(
-          process.execPath,
-          [
-            scriptPath,
-            artifactPath
-          ],
-          {
-            stdio: [
-              'ignore',
-              'pipe',
-              'pipe'
-            ],
-
-            env:
-              process.env
-          }
-        );
-
-
-      let stdout =
-        '';
-
-      let stderr =
-        '';
-
-
-      child.stdout.on(
-        'data',
-        chunk => {
-          stdout +=
-            chunk.toString();
-        }
-      );
-
-
-      child.stderr.on(
-        'data',
-        chunk => {
-          stderr +=
-            chunk.toString();
-        }
-      );
-
-
-      child.on(
-        'error',
-        error => {
-          resolve({
-            code:
-              null,
-
-            stdout,
-
-            stderr,
-
-            error
-          });
-        }
-      );
-
-
-      child.on(
-        'exit',
-        code => {
-          resolve({
-            code,
-
-            stdout,
-
-            stderr,
-
-            error:
-              null
-          });
-        }
-      );
-    }
-  );
+  return verified
+    ? 'VERIFIED'
+    : 'FAILED';
 }
 
 
@@ -145,115 +70,47 @@ if (
 
 
 // ----------------------------------------------------
-// Verify artifact JSON can be loaded
-// ----------------------------------------------------
-
-let artifact;
-
-try {
-  artifact =
-    JSON.parse(
-      fs.readFileSync(
-        artifactPath,
-        'utf8'
-      )
-    );
-
-} catch (error) {
-  fail(
-    `Invalid artifact JSON: ${error.message}`
-  );
-}
-
-
-// ----------------------------------------------------
-// Run batch verifier
+// Batch verification
 // ----------------------------------------------------
 
 const batchResult =
-  await runVerifier(
-    'src/verify-batch.js',
+  verifyBatchArtifact(
     artifactPath
   );
 
 
 if (
-  batchResult.error
+  !batchResult.artifact
 ) {
   fail(
-    `Batch verifier failed to start: ${batchResult.error.message}`
+    batchResult.error ??
+      'Batch verification failed'
   );
 }
 
 
 // ----------------------------------------------------
-// Run proof-chain verifier
+// Proof-chain verification
 // ----------------------------------------------------
 
 const proofChainResult =
-  await runVerifier(
-    'src/verify-proof-chain.js',
+  verifyProofChain(
     artifactPath
   );
 
 
-if (
-  proofChainResult.error
-) {
-  fail(
-    `Proof-chain verifier failed to start: ${proofChainResult.error.message}`
-  );
-}
-
-
 // ----------------------------------------------------
-// Derive high-level statuses
+// Overall
 // ----------------------------------------------------
 
 const batchVerified =
-  batchResult.code ===
-    0;
+  batchResult.overallVerified ===
+  true;
 
 
 const proofChainVerified =
-  proofChainResult.code ===
-    0;
-
-
-const sequenceVerified =
-  batchResult.stdout.includes(
-    'Sequence integrity: VERIFIED'
-  );
-
-
-const batchConsistencyVerified =
-  batchResult.stdout.includes(
-    'Batch consistency: VERIFIED'
-  );
-
-
-const artifactIntegrityVerified =
-  batchResult.stdout.includes(
-    'Artifact integrity: VERIFIED'
-  );
-
-
-const artifactToStorageVerified =
-  proofChainResult.stdout.includes(
-    'Artifact -> Storage: VERIFIED'
-  );
-
-
-const storageToFabricVerified =
-  proofChainResult.stdout.includes(
-    'Storage -> Fabric: VERIFIED'
-  );
-
-
-const pieceCidLinked =
-  proofChainResult.stdout.includes(
-    'PieceCID linkage: VERIFIED'
-  );
+  proofChainResult.overallVerified ===
+  true;
 
 
 const overallVerified =
@@ -262,7 +119,7 @@ const overallVerified =
 
 
 // ----------------------------------------------------
-// Report
+// Header
 // ----------------------------------------------------
 
 console.log(
@@ -288,31 +145,37 @@ console.log(
 
 console.log(
   'Schema:',
-  artifact.schema ??
-    'UNKNOWN'
+  batchResult.artifact.schema
 );
 
 
 console.log(
   'Device:',
-  artifact.deviceId ??
-    'UNKNOWN'
+  batchResult.artifact.deviceId
 );
 
 
 console.log(
   'Sensor:',
-  artifact.sensor ??
-    'UNKNOWN'
+  batchResult.artifact.sensor
 );
 
 
 console.log(
   'Readings:',
-  artifact.readingCount ??
-    'UNKNOWN'
+  batchResult.artifact.readingCount
 );
 
+
+console.log(
+  'Sequence range:',
+  `${batchResult.firstSequence} -> ${batchResult.lastSequence}`
+);
+
+
+// ----------------------------------------------------
+// Batch verification report
+// ----------------------------------------------------
 
 console.log(
   '\n--- Batch Verification ---'
@@ -321,113 +184,256 @@ console.log(
 
 console.log(
   'Artifact integrity:',
-  artifactIntegrityVerified
-    ? 'VERIFIED'
-    : 'FAILED'
+  status(
+    batchResult.artifactIntegrity
+  )
 );
 
 
 console.log(
   'Sequence integrity:',
-  sequenceVerified
-    ? 'VERIFIED'
-    : 'FAILED'
+  status(
+    batchResult.sequenceIntegrity
+  )
 );
 
 
 console.log(
   'Batch consistency:',
-  batchConsistencyVerified
-    ? 'VERIFIED'
-    : 'FAILED'
+  status(
+    batchResult.batchConsistency
+  )
 );
 
 
 console.log(
-  '\n--- Proof Chain Verification ---'
+  'Expected SHA-256:',
+  batchResult.expectedSha256
 );
 
 
 console.log(
-  'Artifact -> Storage:',
-  artifactToStorageVerified
-    ? 'VERIFIED'
-    : 'FAILED'
-);
-
-
-console.log(
-  'Storage -> Fabric:',
-  storageToFabricVerified
-    ? 'VERIFIED'
-    : 'FAILED'
-);
-
-
-console.log(
-  'PieceCID linkage:',
-  pieceCidLinked
-    ? 'VERIFIED'
-    : 'FAILED'
+  'Calculated SHA-256:',
+  batchResult.calculatedSha256
 );
 
 
 // ----------------------------------------------------
-// Diagnostic output on failure
+// Proof-chain report
+// ----------------------------------------------------
+
+console.log(
+  '\n--- Artifact -> Synapse ---'
+);
+
+
+if (
+  proofChainResult.artifactToStorage
+) {
+  console.log(
+    'Payload linkage:',
+    status(
+      proofChainResult
+        .artifactToStorage
+        .payloadLinked
+    )
+  );
+
+
+  console.log(
+    'File linkage:',
+    status(
+      proofChainResult
+        .artifactToStorage
+        .fileLinked
+    )
+  );
+
+
+  console.log(
+    'Device linkage:',
+    status(
+      proofChainResult
+        .artifactToStorage
+        .deviceLinked
+    )
+  );
+
+
+  console.log(
+    'Sensor linkage:',
+    status(
+      proofChainResult
+        .artifactToStorage
+        .sensorLinked
+    )
+  );
+
+
+  console.log(
+    'Reading count linkage:',
+    status(
+      proofChainResult
+        .artifactToStorage
+        .readingCountLinked
+    )
+  );
+
+
+  console.log(
+    'Storage verification:',
+    status(
+      proofChainResult
+        .artifactToStorage
+        .storageVerified
+    )
+  );
+
+
+  console.log(
+    'PieceCID present:',
+    status(
+      proofChainResult
+        .artifactToStorage
+        .pieceCidPresent
+    )
+  );
+
+
+  console.log(
+    'Artifact -> Storage:',
+    status(
+      proofChainResult
+        .artifactToStorage
+        .verified
+    )
+  );
+
+} else {
+  console.log(
+    'Artifact -> Storage: FAILED'
+  );
+}
+
+
+// ----------------------------------------------------
+// Synapse -> Fabric
+// ----------------------------------------------------
+
+console.log(
+  '\n--- Synapse -> Fabric ---'
+);
+
+
+if (
+  proofChainResult.storageToFabric
+) {
+  console.log(
+    'Payload linkage:',
+    status(
+      proofChainResult
+        .storageToFabric
+        .payloadLinked
+    )
+  );
+
+
+  console.log(
+    'File linkage:',
+    status(
+      proofChainResult
+        .storageToFabric
+        .fileLinked
+    )
+  );
+
+
+  console.log(
+    'PieceCID linkage:',
+    status(
+      proofChainResult
+        .storageToFabric
+        .pieceCidLinked
+    )
+  );
+
+
+  console.log(
+    'Device linkage:',
+    status(
+      proofChainResult
+        .storageToFabric
+        .deviceLinked
+    )
+  );
+
+
+  console.log(
+    'Fabric verification:',
+    status(
+      proofChainResult
+        .storageToFabric
+        .fabricVerified
+    )
+  );
+
+
+  console.log(
+    'Storage -> Fabric:',
+    status(
+      proofChainResult
+        .storageToFabric
+        .verified
+    )
+  );
+
+} else {
+  console.log(
+    'Storage -> Fabric: FAILED'
+  );
+}
+
+
+// ----------------------------------------------------
+// PieceCID
 // ----------------------------------------------------
 
 if (
-  !batchVerified
+  proofChainResult.pieceCid
 ) {
   console.log(
-    '\n--- Batch Verifier Diagnostics ---\n'
+    '\nPieceCID:',
+    proofChainResult.pieceCid
   );
+}
 
-  if (
-    batchResult.stdout.trim()
-  ) {
-    console.log(
-      batchResult.stdout.trim()
-    );
-  }
 
-  if (
-    batchResult.stderr.trim()
-  ) {
-    console.error(
-      batchResult.stderr.trim()
-    );
-  }
+// ----------------------------------------------------
+// Diagnostics
+// ----------------------------------------------------
+
+if (
+  batchResult.error
+) {
+  console.log(
+    '\nBatch diagnostic:',
+    batchResult.error
+  );
 }
 
 
 if (
-  !proofChainVerified
+  proofChainResult.error
 ) {
   console.log(
-    '\n--- Proof Chain Diagnostics ---\n'
+    '\nProof-chain diagnostic:',
+    proofChainResult.error
   );
-
-  if (
-    proofChainResult.stdout.trim()
-  ) {
-    console.log(
-      proofChainResult.stdout.trim()
-    );
-  }
-
-  if (
-    proofChainResult.stderr.trim()
-  ) {
-    console.error(
-      proofChainResult.stderr.trim()
-    );
-  }
 }
 
 
 // ----------------------------------------------------
-// Overall
+// Final result
 // ----------------------------------------------------
 
 console.log(
@@ -436,10 +442,26 @@ console.log(
 
 
 console.log(
+  'Batch proof:',
+  status(
+    batchVerified
+  )
+);
+
+
+console.log(
+  'Proof chain:',
+  status(
+    proofChainVerified
+  )
+);
+
+
+console.log(
   'Overall TrustIoT proof:',
-  overallVerified
-    ? 'VERIFIED'
-    : 'FAILED'
+  status(
+    overallVerified
+  )
 );
 
 
@@ -447,6 +469,77 @@ console.log(
   '--------------------------------\n'
 );
 
+
+// ----------------------------------------------------
+// Machine-readable result
+// ----------------------------------------------------
+
+console.log(
+  JSON.stringify(
+    {
+      verifier:
+        'trustiot.independent.verifier.v1',
+
+      artifact:
+        path.basename(
+          artifactPath
+        ),
+
+      deviceId:
+        batchResult
+          .artifact
+          .deviceId,
+
+      batch: {
+        artifactIntegrity:
+          batchResult
+            .artifactIntegrity,
+
+        sequenceIntegrity:
+          batchResult
+            .sequenceIntegrity,
+
+        batchConsistency:
+          batchResult
+            .batchConsistency,
+
+        verified:
+          batchVerified
+      },
+
+      proofChain: {
+        artifactToStorage:
+          proofChainResult
+            .artifactToStorage
+            ?.verified ??
+            false,
+
+        storageToFabric:
+          proofChainResult
+            .storageToFabric
+            ?.verified ??
+            false,
+
+        pieceCid:
+          proofChainResult
+            .pieceCid ??
+            null,
+
+        verified:
+          proofChainVerified
+      },
+
+      overallVerified
+    },
+    null,
+    2
+  )
+);
+
+
+// ----------------------------------------------------
+// Exit status
+// ----------------------------------------------------
 
 if (
   !overallVerified

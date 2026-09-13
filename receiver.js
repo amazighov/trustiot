@@ -1,8 +1,29 @@
+import dotenv from 'dotenv';
+
+dotenv.config({
+  override: true,
+  quiet: true
+});
+
+import {
+  verifyDeviceAttestation
+} from './src/core/attestation/verifyDeviceAttestation.js';
+
+import {
+  registerDevice,
+  getDevice,
+  assertFreshSequence,
+  commitSequence
+} from './src/core/attestation/deviceRegistry.js';
+
 import {
   PersistentRetryQueue
 } from './src/private/retryQueue.js';
 
-import { spawn } from 'child_process';
+import {
+  spawn
+} from 'child_process';
+
 import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -41,6 +62,50 @@ const persistentQueue =
 
 
 // ----------------------------------------------------
+// Trusted device registry
+// ----------------------------------------------------
+
+const devicePublicKeyPath =
+  process.env
+    .DEVICE_ESP32_01_PUBLIC_KEY_PATH;
+
+if (!devicePublicKeyPath) {
+  throw new Error(
+    'DEVICE_ESP32_01_PUBLIC_KEY_PATH is required'
+  );
+}
+
+if (
+  !fs.existsSync(
+    devicePublicKeyPath
+  )
+) {
+  throw new Error(
+    `Device public key not found: ${devicePublicKeyPath}`
+  );
+}
+
+const devicePublicKey =
+  fs.readFileSync(
+    devicePublicKeyPath,
+    'utf8'
+  );
+
+registerDevice({
+  deviceId:
+    'esp32-01',
+
+  publicKey:
+    devicePublicKey
+});
+
+console.log(
+  'Registered trusted device:',
+  'esp32-01'
+);
+
+
+// ----------------------------------------------------
 // Runtime state
 // ----------------------------------------------------
 
@@ -52,10 +117,12 @@ let processingBatch = false;
 
 
 // ----------------------------------------------------
-// Canonical reading
+// Canonical accepted reading
 // ----------------------------------------------------
 
-function canonicalReading(reading) {
+function canonicalReading(
+  reading
+) {
   return {
     deviceId:
       reading.deviceId,
@@ -73,7 +140,10 @@ function canonicalReading(reading) {
       reading.pressure,
 
     timestamp:
-      reading.timestamp
+      reading.timestamp,
+
+    sequence:
+      reading.sequence
   };
 }
 
@@ -138,6 +208,7 @@ function runNodeScript(
 
           resolve({
             code,
+
             error:
               null
           });
@@ -164,7 +235,9 @@ function enqueueBatch(
 
   processingQueue.push({
     filePath,
+
     attempt,
+
     jobId:
       persistentJob.id
   });
@@ -176,7 +249,9 @@ function enqueueBatch(
 
   console.log(
     'Batch queued for TrustIoT processing:',
-    path.basename(filePath),
+    path.basename(
+      filePath
+    ),
     `attempt=${attempt + 1}`
   );
 
@@ -307,7 +382,7 @@ function createBatch() {
     '================================\n'
   );
 
-  // Artifact is now safely stored on disk.
+  // Artifact safely persisted.
   readings = [];
 
   enqueueBatch(
@@ -438,7 +513,6 @@ async function processNextBatch() {
 
   // --------------------------------------------------
   // Synapse store failed
-  // exit 74
   // --------------------------------------------------
 
   if (
@@ -450,10 +524,6 @@ async function processNextBatch() {
       path.basename(
         filePath
       )
-    );
-
-    console.error(
-      'This is retryable.'
     );
 
     processingBatch =
@@ -472,7 +542,6 @@ async function processNextBatch() {
 
   // --------------------------------------------------
   // Stored but commit failed
-  // exit 75
   // --------------------------------------------------
 
   if (
@@ -484,10 +553,6 @@ async function processNextBatch() {
       path.basename(
         filePath
       )
-    );
-
-    console.error(
-      'This is retryable.'
     );
 
     processingBatch =
@@ -535,10 +600,6 @@ async function processNextBatch() {
   }
 
 
-  // --------------------------------------------------
-  // Synapse success
-  // --------------------------------------------------
-
   console.log(
     '\nSynapse processing verified successfully:',
     path.basename(
@@ -568,8 +629,9 @@ async function processNextBatch() {
 
   console.log(
     'Chaincode:',
-    process.env.FABRIC_CHAINCODE ??
-    'trustiot-proof'
+    process.env
+      .FABRIC_CHAINCODE ??
+      'trustiot-proof'
   );
 
   console.log(
@@ -604,11 +666,6 @@ async function processNextBatch() {
 
     return;
   }
-
-
-  // --------------------------------------------------
-  // Fabric failure
-  // --------------------------------------------------
 
   if (
     fabricResult.code !==
@@ -664,6 +721,10 @@ async function processNextBatch() {
   );
 
   console.log(
+    'Device origin: VERIFIED'
+  );
+
+  console.log(
     'Synapse: VERIFIED'
   );
 
@@ -703,7 +764,7 @@ function retryOrContinue(
     persistentQueue.markFailed(
       jobId,
       errorMessage ??
-      'Maximum retries reached'
+        'Maximum retries reached'
     );
 
     console.error(
@@ -815,7 +876,7 @@ function recoverPersistentJobs() {
 
       attempt:
         job.attempt ??
-        0,
+          0,
 
       jobId:
         job.id
@@ -893,7 +954,9 @@ const server =
               'temperature',
               'humidity',
               'pressure',
-              'timestamp'
+              'timestamp',
+              'sequence',
+              'signature'
             ];
 
             for (
@@ -909,10 +972,43 @@ const server =
               }
             }
 
+
+            // ----------------------------------------
+            // Canonical accepted representation
+            // ----------------------------------------
+
             const reading =
               canonicalReading(
                 input
               );
+
+
+            // ----------------------------------------
+            // Basic identity validation
+            // ----------------------------------------
+
+            if (
+              typeof reading.deviceId !==
+                'string' ||
+              reading.deviceId.length ===
+                0
+            ) {
+              throw new Error(
+                'Invalid deviceId'
+              );
+            }
+
+            if (
+              typeof reading.sensor !==
+                'string' ||
+              reading.sensor.length ===
+                0
+            ) {
+              throw new Error(
+                'Invalid sensor'
+              );
+            }
+
 
             // ----------------------------------------
             // Validate timestamp
@@ -951,6 +1047,137 @@ const server =
               );
             }
 
+
+            // ----------------------------------------
+            // Sequence validation
+            // ----------------------------------------
+
+            if (
+              !Number.isInteger(
+                reading.sequence
+              ) ||
+              reading.sequence <
+                0
+            ) {
+              throw new Error(
+                `Invalid sequence: ${reading.sequence}`
+              );
+            }
+
+
+            // ----------------------------------------
+            // Trusted device lookup
+            // ----------------------------------------
+
+            const device =
+              getDevice(
+                reading.deviceId
+              );
+
+            if (!device) {
+              throw new Error(
+                `Unknown device: ${reading.deviceId}`
+              );
+            }
+
+
+            // ----------------------------------------
+            // Device signature verification
+            // ----------------------------------------
+
+            const signatureVerified =
+              verifyDeviceAttestation({
+                reading,
+
+                signature:
+                  input.signature,
+
+                publicKey:
+                  device.publicKey
+              });
+
+            if (
+              !signatureVerified
+            ) {
+              throw new Error(
+                `Invalid device signature: ${reading.deviceId}`
+              );
+            }
+
+
+            // ----------------------------------------
+            // Sensor plausibility validation
+            // ----------------------------------------
+
+            if (
+              reading.temperature <
+                -40 ||
+              reading.temperature >
+                85
+            ) {
+              throw new Error(
+                `Temperature out of range: ${reading.temperature}`
+              );
+            }
+
+            if (
+              reading.humidity <
+                0 ||
+              reading.humidity >
+                100
+            ) {
+              throw new Error(
+                `Humidity out of range: ${reading.humidity}`
+              );
+            }
+
+            if (
+              reading.pressure <
+                300 ||
+              reading.pressure >
+                1100
+            ) {
+              throw new Error(
+                `Pressure out of range: ${reading.pressure}`
+              );
+            }
+
+            console.log(
+              'SENSOR_VALUE_VALID',
+              reading.deviceId,
+              `T=${reading.temperature}`,
+              `H=${reading.humidity}`,
+              `P=${reading.pressure}`
+            );
+
+
+            // ----------------------------------------
+            // Replay protection
+            // ----------------------------------------
+
+            assertFreshSequence(
+              reading.deviceId,
+              reading.sequence
+            );
+
+
+            // Commit only after ALL validation passes.
+            commitSequence(
+              reading.deviceId,
+              reading.sequence
+            );
+
+            console.log(
+              'DEVICE_ORIGIN_VERIFIED',
+              reading.deviceId,
+              `sequence=${reading.sequence}`
+            );
+
+
+            // ----------------------------------------
+            // Accept reading
+            // ----------------------------------------
+
             readings.push(
               reading
             );
@@ -961,19 +1188,30 @@ const server =
               `T=${reading.temperature}`,
               `H=${reading.humidity}`,
               `P=${reading.pressure}`,
-              `timestamp=${reading.timestamp}`
+              `timestamp=${reading.timestamp}`,
+              `sequence=${reading.sequence}`
             );
+
+
+            // ----------------------------------------
+            // Batch creation
+            // ----------------------------------------
 
             let batch =
               null;
 
             if (
               readings.length >=
-              BATCH_SIZE
+                BATCH_SIZE
             ) {
               batch =
                 createBatch();
             }
+
+
+            // ----------------------------------------
+            // Success response
+            // ----------------------------------------
 
             res.writeHead(
               200,
@@ -986,6 +1224,9 @@ const server =
             res.end(
               JSON.stringify({
                 ok:
+                  true,
+
+                deviceOriginVerified:
                   true,
 
                 buffered:
@@ -1042,6 +1283,10 @@ server.listen(
 
     console.log(
       `Batch size: ${BATCH_SIZE} readings`
+    );
+
+    console.log(
+      'Device-origin attestation enabled'
     );
 
     console.log(

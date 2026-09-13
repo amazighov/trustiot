@@ -11,4 +11,4 @@ data/*
 
 artifacts/
 artifacts/
-data/private/
+data/private/device-keys/

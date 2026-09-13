@@ -1,0 +1,17 @@
+{
+  "schema": "trustiot.device.registry.v1",
+  "devices": [
+    {
+      "deviceId": "esp32-01",
+      "sensor": "bme280",
+      "publicKeyEnv": "DEVICE_ESP32_01_PUBLIC_KEY_PATH",
+      "enabled": true
+    },
+    {
+      "deviceId": "esp32-02",
+      "sensor": "bme280",
+      "publicKeyEnv": "DEVICE_ESP32_02_PUBLIC_KEY_PATH",
+      "enabled": true
+    }
+  ]
+}

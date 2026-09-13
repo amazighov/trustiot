@@ -10,11 +10,14 @@ import {
 } from './src/core/attestation/verifyDeviceAttestation.js';
 
 import {
-  registerDevice,
+  
   getDevice,
   assertFreshSequence,
   commitSequence
 } from './src/core/attestation/deviceRegistry.js';
+import {
+  loadDeviceRegistry
+} from './src/core/attestation/deviceRegistryLoader.js';
 
 import {
   PersistentRetryQueue
@@ -52,7 +55,55 @@ fs.mkdirSync(
   }
 );
 
+// ----------------------------------------------------
+// Device log colors
+// ----------------------------------------------------
 
+const DEVICE_COLORS = [
+  '\x1b[32m', // green
+  '\x1b[36m', // cyan
+  '\x1b[33m', // yellow
+  '\x1b[35m', // magenta
+  '\x1b[34m', // blue
+  '\x1b[91m'  // bright red
+];
+
+const COLOR_RESET =
+  '\x1b[0m';
+
+function deviceColor(
+  deviceId
+) {
+  let hash =
+    0;
+
+  for (
+    let i = 0;
+    i < deviceId.length;
+    i++
+  ) {
+    hash =
+      (
+        hash * 31 +
+        deviceId.charCodeAt(i)
+      ) >>> 0;
+  }
+
+  return DEVICE_COLORS[
+    hash %
+    DEVICE_COLORS.length
+  ];
+}
+
+function deviceLabel(
+  deviceId
+) {
+  return (
+    deviceColor(deviceId) +
+    deviceId +
+    COLOR_RESET
+  );
+}
 // ----------------------------------------------------
 // Private persistent retry queue
 // ----------------------------------------------------
@@ -85,23 +136,12 @@ if (
   );
 }
 
-const devicePublicKey =
-  fs.readFileSync(
-    devicePublicKeyPath,
-    'utf8'
-  );
-
-registerDevice({
-  deviceId:
-    'esp32-01',
-
-  publicKey:
-    devicePublicKey
-});
+const deviceRegistry =
+  loadDeviceRegistry();
 
 console.log(
-  'Registered trusted device:',
-  'esp32-01'
+  'Trusted device registry loaded:',
+  `${deviceRegistry.registeredCount} device(s)`
 );
 
 
@@ -1142,13 +1182,15 @@ const server =
               );
             }
 
-            console.log(
-              'SENSOR_VALUE_VALID',
-              reading.deviceId,
-              `T=${reading.temperature}`,
-              `H=${reading.humidity}`,
-              `P=${reading.pressure}`
-            );
+          console.log(
+  'SENSOR_VALUE_VALID',
+  deviceLabel(
+    reading.deviceId
+  ),
+  `T=${reading.temperature}`,
+  `H=${reading.humidity}`,
+  `P=${reading.pressure}`
+);
 
 
             // ----------------------------------------
@@ -1167,11 +1209,13 @@ const server =
               reading.sequence
             );
 
-            console.log(
-              'DEVICE_ORIGIN_VERIFIED',
-              reading.deviceId,
-              `sequence=${reading.sequence}`
-            );
+          console.log(
+  'DEVICE_ORIGIN_VERIFIED',
+  deviceLabel(
+    reading.deviceId
+  ),
+  `sequence=${reading.sequence}`
+);
 
 
             // ----------------------------------------
@@ -1182,15 +1226,17 @@ const server =
               reading
             );
 
-            console.log(
-              `[${readings.length}/${BATCH_SIZE}]`,
-              reading.deviceId,
-              `T=${reading.temperature}`,
-              `H=${reading.humidity}`,
-              `P=${reading.pressure}`,
-              `timestamp=${reading.timestamp}`,
-              `sequence=${reading.sequence}`
-            );
+        console.log(
+  `[${readings.length}/${BATCH_SIZE}]`,
+  deviceLabel(
+    reading.deviceId
+  ),
+  `T=${reading.temperature}`,
+  `H=${reading.humidity}`,
+  `P=${reading.pressure}`,
+  `timestamp=${reading.timestamp}`,
+  `sequence=${reading.sequence}`
+);
 
 
             // ----------------------------------------

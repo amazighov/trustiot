@@ -39,44 +39,65 @@ export class PersistentRetryQueue {
   }
 
   _write(job) {
+  const finalPath =
+    this._jobPath(
+      job.id
+    );
+
+  const tempPath =
+    `${finalPath}.tmp`;
+
+  const serialized =
+    JSON.stringify(
+      job,
+      null,
+      2
+    );
+
+  try {
     fs.writeFileSync(
-      this._jobPath(job.id),
-      JSON.stringify(
-        job,
-        null,
-        2
+      tempPath,
+      serialized,
+      {
+        encoding: 'utf8',
+        flag: 'w'
+      }
+    );
+
+    // Validate what was actually written
+    // before replacing the current job.
+    JSON.parse(
+      fs.readFileSync(
+        tempPath,
+        'utf8'
       )
     );
 
-    return job;
-  }
-
-  _update(
-    id,
-    patch
-  ) {
-    const current =
-      this.get(id);
-
-    if (!current) {
-      throw new Error(
-        `Queue job not found: ${id}`
-      );
-    }
-
-    const updated = {
-      ...current,
-      ...patch
-    };
-
-    this._write(
-      updated
+    fs.renameSync(
+      tempPath,
+      finalPath
     );
 
-    return updated;
+  } catch (error) {
+    try {
+      if (
+        fs.existsSync(
+          tempPath
+        )
+      ) {
+        fs.unlinkSync(
+          tempPath
+        );
+      }
+    } catch {
+      // Preserve original error.
+    }
+
+    throw error;
   }
 
-
+  return job;
+}
   // --------------------------------------------------
   // Create / read jobs
   // --------------------------------------------------
@@ -134,28 +155,43 @@ export class PersistentRetryQueue {
     return job;
   }
 
-  get(id) {
-    const file =
-      this._jobPath(id);
+ get(id) {
+  const file =
+    this._jobPath(
+      id
+    );
 
-    if (
-      !fs.existsSync(
-        file
-      )
-    ) {
-      return null;
-    }
+  if (
+    !fs.existsSync(
+      file
+    )
+  ) {
+    return null;
+  }
 
+  try {
     return JSON.parse(
       fs.readFileSync(
         file,
         'utf8'
       )
     );
-  }
 
-  list() {
-    return fs
+  } catch (error) {
+    this._quarantineFile(
+      file,
+      error.message
+    );
+
+    return null;
+  }
+}
+list() {
+  const jobs =
+    [];
+
+  const files =
+    fs
       .readdirSync(
         this.queueDir
       )
@@ -164,32 +200,111 @@ export class PersistentRetryQueue {
           file.endsWith(
             '.json'
           )
-      )
-      .map(file => {
-        const fullPath =
-          path.join(
-            this.queueDir,
-            file
-          );
-
-        return JSON.parse(
-          fs.readFileSync(
-            fullPath,
-            'utf8'
-          )
-        );
-      })
-      .sort(
-        (a, b) =>
-          new Date(
-            a.createdAt
-          ).getTime() -
-          new Date(
-            b.createdAt
-          ).getTime()
       );
+
+  for (
+    const file
+    of files
+  ) {
+    const fullPath =
+      path.join(
+        this.queueDir,
+        file
+      );
+
+    try {
+      const raw =
+        fs.readFileSync(
+          fullPath,
+          'utf8'
+        );
+
+      const job =
+        JSON.parse(
+          raw
+        );
+
+      jobs.push(
+        job
+      );
+
+    } catch (error) {
+      this._quarantineFile(
+        fullPath,
+        error.message
+      );
+
+      // One damaged job must never prevent
+      // recovery of the remaining queue.
+      continue;
+    }
   }
 
+  return jobs.sort(
+    (a, b) =>
+      new Date(
+        a.createdAt
+      ).getTime() -
+      new Date(
+        b.createdAt
+      ).getTime()
+  );
+}
+_quarantineFile(
+  fullPath,
+  reason
+) {
+  const quarantineDir =
+    path.join(
+      this.queueDir,
+      'quarantine'
+    );
+
+  fs.mkdirSync(
+    quarantineDir,
+    {
+      recursive: true
+    }
+  );
+
+  const originalName =
+    path.basename(
+      fullPath
+    );
+
+  const quarantineName =
+    `${Date.now()}-${originalName}`;
+
+  const quarantinePath =
+    path.join(
+      quarantineDir,
+      quarantineName
+    );
+
+  try {
+    fs.renameSync(
+      fullPath,
+      quarantinePath
+    );
+
+    console.error(
+      'QUEUE_JOB_QUARANTINED',
+      originalName,
+      `reason=${reason}`
+    );
+
+    return quarantinePath;
+
+  } catch (error) {
+    console.error(
+      'QUEUE_QUARANTINE_FAILED',
+      originalName,
+      error.message
+    );
+
+    return null;
+  }
+}
 
   // --------------------------------------------------
   // Startup recovery

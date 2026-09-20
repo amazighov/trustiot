@@ -6,10 +6,15 @@
   "description": "Open-source enterprise IoT data onboarding gateway for Filecoin with optional Hyperledger Fabric governance.",
   "scripts": {
     "demo": "node src/demo.js",
-    "test": "node --test tests/core.test.js tests/security.test.js",
+    "test": "npm run test:unit",
+    "test:unit": "node --test tests/core.test.js tests/security.test.js tests/device-security.test.js tests/device-signing.test.js tests/device-validation.test.js",
+    "test:attestation": "node test-device-attestation.js && node test-device-replay.js",
+    "test:reliability": "node test-sensor-quality.js && node test-retry-queue-corruption.js",
+    "test:trustiot": "npm run test:unit && npm run test:attestation && npm run test:reliability",
     "test:integration": "node --test tests/fabric-replay.integration.test.js",
     "test:synapse": "node --test tests/synapse-storage.integration.test.js",
     "verify": "node src/verify.js",
+    "verify:trustiot": "node src/verify-trustiot.js",
     "fabric:read": "node src/fabric-read.js",
     "fabric:register": "node src/fabric-register.js",
     "fabric:status": "node src/fabric-verify-status.js"

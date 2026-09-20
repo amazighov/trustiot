@@ -1,162 +1,81 @@
-import crypto from 'node:crypto';
-
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 import {
-  canonicalDeviceReading
-} from './src/core/attestation/canonicalDeviceReading.js';
-
-import {
-  verifyDeviceAttestation
-} from './src/core/attestation/verifyDeviceAttestation.js';
-
-import {
-  registerDevice,
-  getDevice,
-  assertFreshSequence,
-  commitSequence
-} from './src/core/attestation/deviceRegistry.js';
+  spawnSync
+} from 'child_process';
 
 
-const {
-  privateKey,
-  publicKey
-} =
-  crypto.generateKeyPairSync(
-    'ec',
+// ----------------------------------------------------
+// Isolated persistent state
+// ----------------------------------------------------
+
+const tempDir =
+  fs.mkdtempSync(
+    path.join(
+      os.tmpdir(),
+      'trustiot-replay-test-'
+    )
+  );
+
+const statePath =
+  path.join(
+    tempDir,
+    'device-state.json'
+  );
+
+
+// ----------------------------------------------------
+// Run replay test in isolated process
+// ----------------------------------------------------
+
+const result =
+  spawnSync(
+    process.execPath,
+    [
+      'test-device-replay-worker.js'
+    ],
     {
-      namedCurve:
-        'prime256v1'
+      stdio:
+        'inherit',
+
+      env: {
+        ...process.env,
+
+        TRUSTIOT_DEVICE_STATE_PATH:
+          statePath
+      }
     }
   );
 
 
-registerDevice({
-  deviceId:
-    'esp32-01',
+// ----------------------------------------------------
+// Cleanup
+// ----------------------------------------------------
 
-  publicKey
-});
-
-
-const reading = {
-  deviceId:
-    'esp32-01',
-
-  sensor:
-    'bme280',
-
-  temperature:
-    30.55,
-
-  humidity:
-    54.46,
-
-  pressure:
-    897.64,
-
-  timestamp:
-    1788735634,
-
-  sequence:
-    123
-};
+fs.rmSync(
+  tempDir,
+  {
+    recursive: true,
+    force: true
+  }
+);
 
 
-const canonical =
-  canonicalDeviceReading(
-    reading
-  );
+// ----------------------------------------------------
+// Result
+// ----------------------------------------------------
 
-
-const signature =
-  crypto.sign(
-    'sha256',
-
-    Buffer.from(
-      canonical,
-      'utf8'
-    ),
-
-    {
-      key:
-        privateKey,
-
-      dsaEncoding:
-        'der'
-    }
-  )
-    .toString(
-      'base64'
-    );
-
-
-const device =
-  getDevice(
-    reading.deviceId
-  );
-
-
-const signatureVerified =
-  verifyDeviceAttestation({
-    reading,
-
-    signature,
-
-    publicKey:
-      device.publicKey
-  });
-
-
-if (!signatureVerified) {
-  throw new Error(
-    'Signature verification failed'
-  );
+if (
+  result.error
+) {
+  throw result.error;
 }
 
 
-assertFreshSequence(
-  reading.deviceId,
-  reading.sequence
-);
-
-
-commitSequence(
-  reading.deviceId,
-  reading.sequence
-);
-
-
-console.log(
-  'First reading accepted'
-);
-
-
-let replayRejected =
-  false;
-
-try {
-  assertFreshSequence(
-    reading.deviceId,
-    reading.sequence
-  );
-
-} catch (error) {
-  replayRejected =
-    true;
-
-  console.log(
-    'Replay rejected:',
-    error.message
-  );
+if (
+  result.status !== 0
+) {
+  process.exitCode =
+    result.status ?? 1;
 }
-
-
-if (!replayRejected) {
-  throw new Error(
-    'Replay attack was accepted'
-  );
-}
-
-
-console.log(
-  'Replay protection test passed'
-);

@@ -12,13 +12,19 @@ const stateDir =
   );
 
 const statePath =
-  path.join(
-    stateDir,
-    'device-state.json'
-  );
+  process.env.TRUSTIOT_DEVICE_STATE_PATH
+    ? path.resolve(
+        process.env.TRUSTIOT_DEVICE_STATE_PATH
+      )
+    : path.join(
+        stateDir,
+        'device-state.json'
+      );
 
 fs.mkdirSync(
-  stateDir,
+  path.dirname(
+    statePath
+  ),
   {
     recursive: true
   }

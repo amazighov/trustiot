@@ -31,7 +31,9 @@ import http from 'http';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
-
+import {
+  inspectSensorQuality
+} from './src/core/attestation/sensorQuality.js';
 
 // ----------------------------------------------------
 // Configuration
@@ -1192,7 +1194,27 @@ const server =
   `P=${reading.pressure}`
 );
 
+const sensorQuality =
+  inspectSensorQuality(
+    reading,
+    {
+      staleThreshold: 10
+    }
+  );
 
+if (
+  sensorQuality.stale
+) {
+  console.warn(
+    'SENSOR_QUALITY_WARNING',
+    deviceLabel(
+      reading.deviceId
+    ),
+    sensorQuality.status,
+    `identicalCount=${sensorQuality.identicalCount}`,
+    `threshold=${sensorQuality.threshold}`
+  );
+}
             // ----------------------------------------
             // Replay protection
             // ----------------------------------------
@@ -1222,9 +1244,24 @@ const server =
             // Accept reading
             // ----------------------------------------
 
-            readings.push(
-              reading
-            );
+            const acceptedReading = {
+  ...reading,
+
+  quality: {
+    status:
+      sensorQuality.status,
+
+    stale:
+      sensorQuality.stale,
+
+    identicalCount:
+      sensorQuality.identicalCount
+  }
+};
+
+readings.push(
+  acceptedReading
+);
 
         console.log(
   `[${readings.length}/${BATCH_SIZE}]`,

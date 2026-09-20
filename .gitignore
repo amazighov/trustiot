@@ -12,3 +12,5 @@ data/*
 artifacts/
 artifacts/
 data/private/device-keys/
+# Local hardware test helpers
+test-device-02.js

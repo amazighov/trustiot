@@ -1,6 +1,6 @@
-# Project Status — TrustIoT v0.2
+# Project Status — TrustIoT v0.1.0
 
-TrustIoT v0.2 extends the original MVP with live Filecoin storage,
+TrustIoT v0.1.0 extends the original MVP with live Filecoin storage,
 Hyperledger Fabric governance, cryptographic provenance, replay
 protection, trusted device identity, and ESP32 ingestion.
 
@@ -135,9 +135,8 @@ Independent Retrieval + Signature + SHA-256 Verification
 
 ## Next Steps
 
-- [ ] Move device signing onto the ESP32 itself
-- [ ] Integrate a physical temperature/environment sensor
-- [ ] Add persistent device-level sequence / replay protection
+
+
 - [ ] Move trusted device registry into Fabric governance
 - [ ] Add device enrollment and revocation transactions
 - [ ] Add Synapse storage integration tests

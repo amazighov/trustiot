@@ -1,4 +1,4 @@
-# TrustIoT Architecture v0.2
+# TrustIoT Architecture v0.1.0
 
 ## 1. Problem
 
@@ -149,7 +149,7 @@ TrustIoT uses a storage abstraction rather than assuming that every Filecoin sto
 
 ### 5.1 Synapse SDK / PDP
 
-Synapse/PDP is the primary storage path in v0.2.
+Synapse/PDP is the primary storage path in v0.1.0.
 
 ```text
 Encrypted artifact
@@ -248,7 +248,7 @@ Implemented on the gateway side:
 - unknown-device rejection;
 - tamper detection.
 
-Direct Ed25519 signing on the ESP32 firmware is planned but is not yet part of the completed v0.2 path.
+Physical ESP32 readings use ECDSA P-256 with SHA-256 for device-origin attestation. This is separate from the Ed25519 gateway/public-manifest signing path.
 
 ### Step B — Batch
 
@@ -436,7 +436,7 @@ DatasetExists
 SetVerificationStatus
 ```
 
-The development chaincode used by TrustIoT v0.2 is currently:
+The development chaincode used by TrustIoT v0.1.0 is currently:
 
 ```text
 Version: 1.5
@@ -503,19 +503,22 @@ The gateway also contains:
 - unknown-device rejection;
 - reading tamper detection.
 
-Still planned:
+Implemented and exercised:
 
-```text
-Ed25519 signing directly on ESP32
-physical environmental sensor
-persistent device-level sequence protection
-```
+- BME280 physical environmental sensor readings;
+- ECDSA P-256 + SHA-256 signing on ESP32;
+- canonical device-reading attestation;
+- persistent per-device sequence state;
+- device-level replay protection;
+- multi-device trusted registry;
+- sensor plausibility validation;
+- stale/repeated-data quality detection.
 
 ---
 
 ## 12. Verification independence
 
-A major v0.2 design change is that verification no longer depends directly on IPFS.
+A major v0.1.0 design change is that verification no longer depends directly on IPFS.
 
 The verifier operates on:
 
@@ -659,7 +662,7 @@ The application does not need to understand whether the underlying Filecoin path
 
 ---
 
-## 17. Current v0.2 architecture summary
+## 17. Current v0.1.0 architecture summary
 
 ```text
 Physical / Simulated IoT
@@ -700,12 +703,14 @@ VERIFIED / REJECTED
 
 ## 18. Next architectural steps
 
-- execute Ed25519 signing directly on ESP32;
-- integrate a physical environmental sensor;
-- move trusted-device enrollment/revocation into Fabric;
-- add persistent device-level replay protection;
-- add automated Synapse storage integration tests;
-- add Mainnet configuration;
+## 18. Remaining production hardening
+
+- move trusted-device enrollment/revocation into Fabric governance;
+- add secure-element-backed ESP32 private-key storage;
 - introduce production KMS / secret management;
-- define key rotation and recovery policies;
-- design a production Fabric topology.
+- define production wallet and key-rotation strategies;
+- add Filecoin Mainnet deployment configuration;
+- design a production Fabric topology and identity model;
+- expand long-running hardware and fault-injection testing;
+- add operational monitoring and dashboard tooling;
+- perform an external security review.

@@ -1,257 +1,566 @@
 # TrustIoT
 
-**TrustIoT** is an open-source secure IoT data onboarding and provenance gateway for Filecoin, with Hyperledger Fabric as an enterprise governance and audit layer.
+**TrustIoT** is an open-source verifiable IoT data provenance and storage pipeline built around physical device attestation, Filecoin-backed storage, independent verification, and optional Hyperledger Fabric governance.
 
-TrustIoT separates large encrypted IoT datasets from their governance metadata:
+TrustIoT is designed around a simple principle:
 
-- encrypted IoT batches are stored on Filecoin;
-- **Synapse SDK / PDP** is the primary Filecoin storage path;
-- Filecoin Pin remains available as an optional IPFS-oriented storage adapter;
-- Hyperledger Fabric records integrity, provenance, storage and verification metadata;
-- Ed25519 signatures establish gateway provenance;
-- replay protection prevents reuse of signed submissions;
-- ESP32 devices can send readings to the TrustIoT ingestion gateway.
+> Store IoT data in the data layer, store compact proofs and governance metadata in the ledger layer, and preserve cryptographic evidence from the physical device to independent verification.
+
+TrustIoT v0.1.0 is a working prototype that has been exercised with physical ESP32 hardware, a BME280 environmental sensor, Filecoin Calibration through Synapse/PDP, and a local Hyperledger Fabric test network.
+
+---
+
+## Why TrustIoT?
+
+IoT pipelines commonly need to answer several different questions:
+
+- Which physical device produced this reading?
+- Was the reading modified after it left the device?
+- Has the same signed reading been replayed?
+- Does a stored batch still match the data originally accepted?
+- Can storage provenance be linked to an independently verifiable proof?
+- Can large IoT datasets remain outside a blockchain while their integrity and provenance remain auditable?
+
+TrustIoT separates these concerns rather than placing raw sensor streams directly on-chain.
+
+---
 
 ## Architecture
 
-TrustIoT separates three concerns:
+TrustIoT uses four cooperating planes:
 
-1. **Edge plane** — IoT devices and gateways produce, validate and batch readings.
-2. **Data plane** — encrypted datasets are stored through Filecoin-backed storage.
-3. **Governance plane** — Hyperledger Fabric records provenance, integrity and verification state.
+1. **Device / edge plane** — physical devices sign readings and send them to the gateway.
+2. **Data plane** — batches and encrypted datasets are stored using Filecoin-backed or local storage adapters.
+3. **Governance plane** — Hyperledger Fabric can record compact provenance and verification metadata.
+4. **Verification plane** — independent verification checks batch integrity and the storage/proof chain.
 
 ```text
-ESP32 / Simulator
-        |
-        v
-TrustIoT Gateway
-        |
-        +--> Device identity validation
-        |
-        v
-Batch + AES-256-GCM
-        |
-        v
-Storage Adapter
-        |
-        +--> Synapse SDK / PDP   [primary]
-        +--> Filecoin Pin        [optional]
-        +--> Local Storage       [development]
-        |
-        v
-Storage Reference
-(PieceCID / IPFS Root CID / local reference)
-        |
-        v
-Signed Public Manifest
-        |
-        v
-Hyperledger Fabric
-        |
-        v
-Independent Retrieval
-        |
-        +--> signature verification
-        +--> SHA-256 verification
-        |
-        v
-VERIFIED / REJECTED
+┌──────────────────────────────────────────────────────┐
+│                DEVICE / EDGE PLANE                   │
+│                                                      │
+│ ESP32 + BME280                                      │
+│      │                                               │
+│      ├─ ECDSA P-256 device signature                │
+│      ├─ timestamp                                    │
+│      └─ persistent sequence                          │
+│              │                                       │
+│              ▼                                       │
+│        TrustIoT Receiver                             │
+│              │                                       │
+│      ├─ trusted-device lookup                        │
+│      ├─ signature verification                       │
+│      ├─ anti-replay validation                       │
+│      ├─ sensor plausibility checks                   │
+│      └─ sensor-quality signal                        │
+│              │                                       │
+│              ▼                                       │
+│        verifiable sensor batch                       │
+└──────────────────────┬───────────────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────────────┐
+│                   DATA PLANE                         │
+│                                                      │
+│ Storage abstraction                                  │
+│      │                                               │
+│      ├─ Synapse SDK / PDP [primary Filecoin path]   │
+│      ├─ Filecoin Pin       [optional]                │
+│      └─ Local storage      [development]             │
+│                                                      │
+│ PieceCID / storage reference + SHA-256               │
+└──────────────────────┬───────────────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────────────┐
+│                GOVERNANCE PLANE                      │
+│                                                      │
+│ Hyperledger Fabric                                   │
+│      ├─ provenance metadata                          │
+│      ├─ storage metadata                             │
+│      ├─ integrity hashes                             │
+│      ├─ replay-resistant state                       │
+│      └─ verification records                         │
+└──────────────────────┬───────────────────────────────┘
+                       │
+                       ▼
+┌──────────────────────────────────────────────────────┐
+│                VERIFICATION PLANE                    │
+│                                                      │
+│ Batch verification                                   │
+│      +                                               │
+│ Artifact → storage linkage                           │
+│      +                                               │
+│ Storage → Fabric linkage                             │
+│      │                                               │
+│      ▼                                               │
+│ VERIFIED / FAILED                                    │
+└──────────────────────────────────────────────────────┘
 ```
 
-Raw IoT streams are intentionally kept out of Fabric state. Fabric stores compact governance and provenance metadata while Filecoin stores the encrypted datasets.
+Raw IoT streams are intentionally kept out of Fabric state.
 
-## Current status — v0.2
+---
 
-TrustIoT currently supports a working end-to-end vertical slice:
+## Current status — v0.1.0
+
+The current prototype includes two related verification paths.
+
+### Physical sensor provenance
 
 ```text
-IoT readings
-→ batch
+ESP32 + BME280
+→ canonical reading
+→ ECDSA P-256 signature
+→ TrustIoT receiver
+→ trusted-device verification
+→ persistent anti-replay
+→ sensor validation
+→ batching
+→ SHA-256
+→ Synapse / Filecoin
+→ Fabric proof
+→ independent verification
+```
+
+### Dataset governance
+
+```text
+IoT dataset
+→ batching
 → AES-256-GCM encryption
-→ Filecoin storage
-→ signed manifest
+→ Filecoin-backed storage
+→ signed public manifest
 → Hyperledger Fabric
 → independent retrieval
 → signature verification
 → SHA-256 verification
-→ VERIFIED
+→ VERIFIED / REJECTED
 ```
 
-The implementation has been exercised on the Filecoin Calibration network and a local Hyperledger Fabric test network.
+These paths share the same architectural goal: preserve independently checkable provenance while keeping bulk IoT data outside the governance ledger.
 
-### Filecoin
+---
 
-Implemented:
+## Physical device attestation
 
-- Synapse SDK integration
-- PDP-backed storage on Calibration
-- PieceCID-based storage references
-- Synapse storage readiness checks
-- Synapse upload and download
-- Filecoin Pin uploads
-- IPFS Root CID retrieval
-- local development storage
-- storage-driver-independent verification
+TrustIoT supports signed readings originating from ESP32 devices.
 
-Synapse/PDP is the primary storage path for v0.2.
+A canonical device reading contains:
 
-Filecoin Pin is retained as an optional adapter rather than removed.
+```json
+{
+  "schema": "trustiot.device.attestation.v1",
+  "deviceId": "esp32-01",
+  "sensor": "bme280",
+  "temperature": "30.55",
+  "humidity": "54.46",
+  "pressure": "897.64",
+  "timestamp": 1788735634,
+  "sequence": 123
+}
+```
 
-### Hyperledger Fabric
+The ESP32 signs the canonical representation using **ECDSA P-256 + SHA-256**.
 
-Implemented:
+The receiver then:
 
-- Fabric Gateway client
-- live test-network transactions
-- dataset registration and reads
-- verification-status transactions
-- storage-neutral metadata
-- Synapse PieceCID metadata
-- Ed25519 signature metadata
-- persistent nonce state
-- atomic replay protection
-- idempotent registration
-- retry and ambiguous-commit recovery
-- structured transaction logging
+1. resolves the device from the trusted-device registry;
+2. verifies the device signature;
+3. validates the sequence number;
+4. rejects replayed sequences;
+5. checks basic sensor plausibility;
+6. evaluates the sensor-quality signal;
+7. accepts the reading into the batch.
 
-The current TrustIoT chaincode used during development is:
+Device public keys are configured outside source code.
+
+Private device keys are not committed to the repository.
+
+---
+
+## Persistent anti-replay protection
+
+Each trusted device maintains a monotonically increasing sequence number.
+
+TrustIoT persists the last accepted sequence so replay protection survives process restarts.
 
 ```text
-Version: 1.5
-Sequence: 6
+signed reading
+      │
+      ▼
+signature verification
+      │
+      ▼
+sequence > lastSequence ?
+      │
+   ┌──┴──┐
+   │     │
+  yes    no
+   │     │
+accept  REJECT
+   │
+persist sequence
 ```
 
-### Security and provenance
+Replay-state tests use an isolated temporary state file and do not modify runtime device state.
 
-Implemented:
+---
 
-- AES-256-GCM dataset encryption
-- ciphertext SHA-256 integrity hashes
-- Ed25519 gateway signatures
-- signed public manifests
-- stored-signature verification
-- manifest tamper detection
-- timestamp validation
-- nonce-based replay protection
-- persistent Fabric anti-replay state
-- trusted signer registry
-- signer revocation policy
-- trusted device registry
-- signed device-reading validation
-- unknown-device rejection
-- tampered-reading rejection
+## Multi-device registry
 
-Encryption keys are not written to Filecoin or public Fabric state.
-
-### ESP32
-
-An ESP32 DevKit V1 has been integrated with the development gateway.
-
-Implemented:
+Trusted devices are configured in:
 
 ```text
-ESP32
-→ Wi-Fi
-→ HTTP
-→ TrustIoT ingestion endpoint
+config/devices.json
 ```
 
-The ESP32 has successfully communicated with the TrustIoT gateway over the local network.
+Example:
 
-Trusted-device and signed-reading verification are implemented on the TrustIoT side.
+```json
+{
+  "schema": "trustiot.device.registry.v1",
+  "devices": [
+    {
+      "deviceId": "esp32-01",
+      "sensor": "bme280",
+      "publicKeyEnv": "DEVICE_ESP32_01_PUBLIC_KEY_PATH",
+      "enabled": true
+    }
+  ]
+}
+```
 
-Still planned:
+The registry contains references to environment variables, not private keys.
 
-- Ed25519 signing directly on the ESP32
-- physical environmental sensor integration
-- persistent device-level sequence/replay protection
+---
 
-## Storage model
+## Sensor validation and quality
 
-TrustIoT does not assume that every Filecoin storage mechanism exposes the same identifier.
+TrustIoT distinguishes between three concepts:
+
+```text
+cryptographic validity
+        ≠
+physical plausibility
+        ≠
+data quality
+```
+
+The receiver performs basic plausibility validation for environmental readings.
+
+A separate quality detector can flag repeated identical readings as:
+
+```text
+SUSPICIOUS_STALE
+```
+
+A stale-quality signal does not automatically invalidate an otherwise authentic signed reading.
+
+This keeps cryptographic provenance separate from sensor-quality interpretation.
+
+---
+
+## Verifiable sensor batches
+
+Accepted readings are grouped into batches.
+
+The current physical-device receiver uses batches of 60 readings.
+
+A batch includes:
+
+- device ID;
+- sensor ID;
+- start timestamp;
+- end timestamp;
+- reading count;
+- individual readings;
+- SHA-256 integrity hash.
+
+Example schema:
+
+```text
+trustiot.sensor.batch.v1
+```
+
+The batch hash is calculated over the canonical batch payload.
+
+---
+
+## Filecoin storage
 
 ### Synapse / PDP
 
+Synapse SDK / PDP is the primary Filecoin storage path used by the current prototype.
+
+Implemented and exercised on Filecoin Calibration:
+
+- Synapse SDK integration;
+- storage readiness checks;
+- PDP upload;
+- PieceCID-based references;
+- retrieval;
+- SHA-256 verification after retrieval;
+- retryable storage processing;
+- benchmark measurements.
+
+Typical metadata:
+
 ```text
 storageDriver  = synapse
-storageNetwork = calibration | mainnet
+storageNetwork = calibration
 storageRef     = PieceCID
 pieceCid       = PieceCID
-ipfsRootCid    = null
-cid            = null
 ```
 
 ### Filecoin Pin
 
-```text
-storageDriver  = filecoin-pin
-storageNetwork = calibration | mainnet
-storageRef     = IPFS Root CID
-pieceCid       = PieceCID when available
-ipfsRootCid    = IPFS Root CID
-cid            = IPFS Root CID
-```
-
-### Local development
+An optional Filecoin Pin adapter is retained for IPFS-oriented storage flows.
 
 ```text
-storageDriver  = local
-storageNetwork = null
-storageRef     = local file path
-pieceCid       = null
-ipfsRootCid    = null
-cid            = null
+storageDriver = filecoin-pin
+storageRef    = IPFS Root CID
 ```
 
-This keeps the manifest and verification pipeline independent of the underlying storage mechanism.
+### Local storage
 
-## Verification model
+Local storage remains available for development and offline testing.
 
-Verification is independent of the upload path.
+---
 
-For a Fabric-governed dataset, TrustIoT:
+## Hyperledger Fabric
 
-1. reads the dataset record from Fabric;
-2. resolves the trusted signer;
-3. reconstructs the originally signed public manifest;
-4. verifies its Ed25519 signature;
-5. selects the retrieval implementation using `storageDriver`;
-6. retrieves the encrypted artifact;
-7. calculates SHA-256;
-8. compares it with the on-chain ciphertext hash;
-9. records `VERIFIED` or `REJECTED` in Fabric.
+TrustIoT includes an optional Hyperledger Fabric governance layer.
 
-For Synapse:
+Implemented functionality includes:
+
+- Fabric Gateway client;
+- test-network transactions;
+- dataset registration and reads;
+- verification-status updates;
+- storage-neutral metadata;
+- PieceCID metadata;
+- idempotent registration;
+- persistent nonce/replay protection;
+- retry and ambiguous-commit handling;
+- proof submission and read-back verification.
+
+Fabric stores compact governance and provenance metadata rather than raw sensor streams.
+
+---
+
+## Gateway manifest signing
+
+TrustIoT also supports an Ed25519-signed public-manifest path for dataset-level provenance.
+
+This is separate from ESP32 device attestation:
 
 ```text
-PieceCID
-→ Synapse download
-→ encrypted bytes
-→ SHA-256
-→ Fabric verification update
+ESP32 device attestation
+→ ECDSA P-256
+
+Gateway / public manifest provenance
+→ Ed25519
 ```
 
-For Filecoin Pin:
+The dataset verification path can:
+
+1. resolve the trusted signer;
+2. reconstruct the signed manifest;
+3. verify the Ed25519 signature;
+4. retrieve the encrypted artifact;
+5. calculate SHA-256;
+6. compare it with the recorded ciphertext hash;
+7. record `VERIFIED` or `REJECTED`.
+
+---
+
+## Independent verification
+
+TrustIoT includes independent verification tooling for physical sensor batches.
+
+### Batch verification
+
+```bash
+node src/verify-batch.js <artifact.json>
+```
+
+Checks include:
+
+- artifact SHA-256;
+- sequence integrity;
+- device/sensor consistency;
+- reading count;
+- batch boundaries.
+
+### Proof-chain verification
+
+```bash
+node src/verify-proof-chain.js <artifact.json>
+```
+
+Checks linkage across:
 
 ```text
-IPFS Root CID
-→ IPFS retrieval
-→ encrypted bytes
-→ SHA-256
-→ Fabric verification update
+artifact
+   ↓
+Synapse / Filecoin receipt
+   ↓
+Fabric proof
 ```
 
-## Run locally
+including:
 
-Requires Node.js 24+.
+- payload SHA-256;
+- file SHA-256;
+- device identity;
+- sensor identity;
+- reading count;
+- PieceCID;
+- Fabric proof state.
 
-Install dependencies:
+### Unified verification
+
+```bash
+npm run verify:trustiot -- <artifact.json>
+```
+
+The unified verifier produces both a human-readable report and structured JSON.
+
+Example:
+
+```json
+{
+  "verifier": "trustiot.independent.verifier.v1",
+  "deviceId": "esp32-01",
+  "batch": {
+    "artifactIntegrity": true,
+    "sequenceIntegrity": true,
+    "batchConsistency": true,
+    "verified": true
+  },
+  "proofChain": {
+    "artifactToStorage": true,
+    "storageToFabric": true,
+    "pieceCid": "bafkzc...",
+    "verified": true
+  },
+  "overallVerified": true
+}
+```
+
+Tampered artifacts produce a failed verification result.
+
+---
+
+## Reliability
+
+The physical-batch processing pipeline uses a persistent retry queue.
+
+Jobs can transition through retry and recovery states when storage or proof submission temporarily fails.
+
+Queue persistence uses temporary-file replacement rather than directly overwriting the final job file.
+
+Malformed queue records are quarantined instead of crashing receiver startup.
+
+This behavior is covered by an automated corruption-recovery test.
+
+---
+
+## Benchmarks
+
+The repository includes benchmark tooling for Synapse/Filecoin operations.
+
+A benchmark records fields such as:
+
+```text
+artifactSizeBytes
+pieceCid
+requestedCopies
+uploadLatencyMs
+retrievalLatencyMs
+totalLatencyMs
+expectedSha256
+actualSha256
+verified
+```
+
+Benchmark results are environment- and network-dependent and should not be interpreted as fixed performance guarantees.
+
+---
+
+## Requirements
+
+- Node.js 24+
+- npm
+- optional ESP32 hardware for physical-device testing
+- optional BME280 for environmental sensor testing
+- Filecoin/Synapse credentials for live storage tests
+- Hyperledger Fabric test network for Fabric integration tests
+
+The offline security suite does not require ESP32, Filecoin, or Fabric.
+
+---
+
+## Install
 
 ```bash
 npm install
 ```
 
-Run the local vertical slice:
+---
+
+## Offline verification suite
+
+Run the deterministic offline suite:
+
+```bash
+npm run test:trustiot
+```
+
+It covers:
+
+- core batch and manifest behavior;
+- signed-manifest verification;
+- tamper rejection;
+- trusted signer policy;
+- device signature verification;
+- unknown-device rejection;
+- device-reading tamper detection;
+- replay protection;
+- stale-sensor detection;
+- persistent queue corruption recovery.
+
+The offline suite uses isolated test state and does not require live infrastructure.
+
+Individual groups can also be run with:
+
+```bash
+npm run test:unit
+npm run test:attestation
+npm run test:reliability
+```
+
+---
+
+## Integration tests
+
+Fabric integration:
+
+```bash
+npm run test:integration
+```
+
+Synapse/Filecoin integration:
+
+```bash
+npm run test:synapse
+```
+
+These tests require the corresponding external infrastructure and configuration.
+
+---
+
+## Local development path
 
 ```bash
 export STORAGE_DRIVER=local
@@ -260,9 +569,11 @@ export LEDGER_DRIVER=local
 npm run demo
 ```
 
-## Run with Synapse / PDP
+---
 
-The private key must be supplied outside the repository:
+## Synapse / Filecoin Calibration
+
+Supply credentials outside the repository:
 
 ```bash
 export SYNAPSE_PRIVATE_KEY='0x...'
@@ -272,9 +583,13 @@ export LEDGER_DRIVER=local
 npm run demo
 ```
 
-Do not commit private keys or wallet credentials.
+Never commit wallet credentials or private keys.
 
-For Fabric governance, configure the Fabric environment and use:
+---
+
+## Fabric-governed dataset path
+
+With Fabric configured:
 
 ```bash
 export STORAGE_DRIVER=synapse
@@ -283,163 +598,129 @@ export LEDGER_DRIVER=fabric
 npm run demo
 ```
 
-A successful Synapse/Fabric run records fields such as:
-
-```json
-{
-  "storageDriver": "synapse",
-  "storageNetwork": "calibration",
-  "storageRef": "bafkzc...",
-  "pieceCid": "bafkzc...",
-  "ipfsRootCid": null,
-  "verificationStatus": "UNVERIFIED"
-}
-```
-
-Then verify the dataset:
+Dataset verification:
 
 ```bash
 npm run verify -- <datasetId>
 ```
 
-A successful verification produces:
-
-```text
-Stored manifest signature: VERIFIED
-Storage driver: synapse
-Retrieving from Synapse: <PieceCID>
-```
-
-and finishes with:
-
-```json
-{
-  "storedSignatureValid": true,
-  "verificationStatus": "VERIFIED"
-}
-```
-
-## Alternative storage drivers
-
-### Filecoin Pin
-
-```bash
-export STORAGE_DRIVER=filecoin-pin
-npm run demo
-```
-
-The legacy value `filecoin` is also accepted for compatibility.
-
-### Local
-
-```bash
-export STORAGE_DRIVER=local
-npm run demo
-```
-
-## Tests
-
-Run core and security tests:
-
-```bash
-npm test
-```
-
-Run the Fabric integration test with the Fabric test network running:
-
-```bash
-npm run test:integration
-```
-
-The integration test verifies that Fabric persistently rejects reuse of the same signer nonce.
+---
 
 ## Repository structure
 
 ```text
 trustiot/
+├── receiver.js
+├── config/
+│   └── devices.json
 ├── src/
-│   ├── demo.js
-│   ├── verify.js
-│   ├── ingest-server.js
+│   ├── adapters/
 │   ├── core/
-│   │   ├── batch.js
-│   │   ├── crypto.js
-│   │   ├── manifest.js
-│   │   ├── signing.js
-│   │   ├── signerRegistry.js
-│   │   ├── replay.js
-│   │   ├── retry.js
-│   │   ├── deviceRegistry.js
-│   │   ├── deviceSigning.js
-│   │   ├── deviceValidation.js
-│   │   └── storageRetrieval.js
-│   └── adapters/
-│       ├── synapseStorage.js
-│       ├── filecoinPin.js
-│       ├── localStorage.js
-│       ├── fabricGateway.js
-│       ├── fabricLedger.js
-│       └── localLedger.js
+│   │   ├── attestation/
+│   │   │   ├── canonicalDeviceReading.js
+│   │   │   ├── deviceRegistry.js
+│   │   │   ├── deviceRegistryLoader.js
+│   │   │   ├── sensorQuality.js
+│   │   │   └── verifyDeviceAttestation.js
+│   │   └── verification/
+│   │       ├── verifyBatch.js
+│   │       └── verifyProofChain.js
+│   ├── private/
+│   │   └── retryQueue.js
+│   ├── verify-batch.js
+│   ├── verify-proof-chain.js
+│   └── verify-trustiot.js
 ├── chaincode/
-│   ├── index.js
-│   └── lib/
-│       └── trustiot-contract.js
 ├── fabric/
-│   └── collections_config.json
 ├── tests/
-│   ├── core.test.js
-│   ├── security.test.js
-│   ├── device-security.test.js
-│   ├── device-signing.test.js
-│   ├── device-validation.test.js
-│   └── fabric-replay.integration.test.js
 ├── docs/
-├── data/
+├── examples/
 ├── PROJECT_STATUS.md
 └── package.json
 ```
 
+---
+
 ## Secret management
 
-The repository ignores runtime data and secret material, including:
+The repository excludes runtime and secret material such as:
 
 ```text
 .env
 *.env
 data/*
+artifacts/
+data/private/device-keys/
 ```
 
-with only `data/.gitkeep` retained.
+with `data/.gitkeep` retained.
 
-Private keys, wallet credentials, encryption keys and generated encrypted datasets must not be committed.
+Do not commit:
 
-Production deployments should replace development key files and environment variables with a dedicated KMS or secret-management system.
+- ESP32 private keys;
+- wallet credentials;
+- Fabric private identities;
+- encryption keys;
+- generated runtime artifacts;
+- private device state.
+
+Production deployments should replace development key files and environment variables with an appropriate KMS, HSM, secure element, or secrets-management system.
+
+---
+
+## Security model
+
+TrustIoT v0.1.0 demonstrates:
+
+- authenticated device-origin readings;
+- signed dataset manifests;
+- tamper detection;
+- persistent replay protection;
+- sensor plausibility checks;
+- sensor-quality signaling;
+- verifiable batching;
+- storage integrity verification;
+- Filecoin storage linkage;
+- Fabric proof linkage;
+- independent verification;
+- crash-tolerant retry recovery.
+
+It is a prototype and has **not** undergone a third-party security audit.
+
+---
+
+## Development boundaries
+
+The current release is not presented as production-ready infrastructure.
+
+Future hardening includes:
+
+- secure-element-backed ESP32 private keys;
+- production KMS/HSM integration;
+- production wallet strategy;
+- Filecoin Mainnet deployment configuration;
+- production Fabric identity management;
+- broader fault-injection testing;
+- external security review;
+- operational monitoring and dashboard tooling.
+
+---
 
 ## Design principle
 
-TrustIoT is not intended to put raw IoT data on a blockchain.
-
-Its design principle is:
-
 ```text
-Filecoin = encrypted data plane
-Fabric   = governance and provenance plane
-ESP32    = physical edge plane
+Physical devices = origin evidence
+Filecoin         = data plane
+Fabric           = governance / provenance plane
+Verifier         = independent evidence check
 ```
 
-This separation allows the storage, governance and device layers to evolve independently.
+Each layer can evolve independently while preserving explicit verification boundaries.
 
-## Next steps
-
-- execute Ed25519 device signing directly on ESP32
-- integrate a physical environmental sensor
-- move trusted-device governance into Fabric
-- add persistent device-level replay protection
-- add automated Synapse storage integration tests
-- add Mainnet deployment configuration
-- harden production key management
-- expand architecture and deployment documentation
+---
 
 ## License
 
-Apache-2.0 for the prototype. Additional licensing can be evaluated as the project moves toward production and grant deployment.
+Apache-2.0.
+
+See the repository license terms before production or downstream redistribution.

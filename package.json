@@ -9,7 +9,7 @@
     "test": "npm run test:unit",
     "test:unit": "node --test tests/core.test.js tests/security.test.js tests/device-security.test.js tests/device-signing.test.js tests/device-validation.test.js",
     "test:attestation": "node test-device-attestation.js && node test-device-replay.js",
-    "test:reliability": "node test-sensor-quality.js && node test-retry-queue-corruption.js",
+    "test:reliability": "node test-sensor-quality.js && node test-retry-queue-corruption.js && node --test tests/receiver-hardening.test.js",
     "test:trustiot": "npm run test:unit && npm run test:attestation && npm run test:reliability",
     "test:integration": "node --test tests/fabric-replay.integration.test.js",
     "test:synapse": "node --test tests/synapse-storage.integration.test.js",

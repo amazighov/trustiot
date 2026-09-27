@@ -39,16 +39,38 @@ import {
 // Configuration
 // ----------------------------------------------------
 
-const PORT = 3000;
+const PORT =
+  Number.parseInt(
+    process.env.PORT ?? '3000',
+    10
+  );
+
+if (
+  !Number.isInteger(PORT) ||
+  PORT < 1 ||
+  PORT > 65535
+) {
+  throw new Error(
+    `Invalid PORT: ${process.env.PORT}`
+  );
+}
 const BATCH_SIZE = 60;
+
+const MAX_FUTURE_CLOCK_SKEW_SECONDS =
+  5 * 60;
 
 const MAX_RETRIES = 5;
 const RETRY_DELAY_MS = 30000;
-
+const MAX_REQUEST_BODY_BYTES =
+  16 * 1024;
 const batchesDir =
-  path.resolve(
-    './artifacts/batches'
-  );
+  process.env.TRUSTIOT_BATCHES_DIR
+    ? path.resolve(
+        process.env.TRUSTIOT_BATCHES_DIR
+      )
+    : path.resolve(
+        './artifacts/batches'
+      );
 
 fs.mkdirSync(
   batchesDir,
@@ -110,36 +132,41 @@ function deviceLabel(
 // Private persistent retry queue
 // ----------------------------------------------------
 
+const retryQueueDir =
+  process.env.TRUSTIOT_RETRY_QUEUE_DIR
+    ? path.resolve(
+        process.env.TRUSTIOT_RETRY_QUEUE_DIR
+      )
+    : path.resolve(
+        'data/private/queue'
+      );
+
 const persistentQueue =
-  new PersistentRetryQueue();
+  new PersistentRetryQueue({
+    queueDir:
+      retryQueueDir
+  });
 
 
 // ----------------------------------------------------
 // Trusted device registry
 // ----------------------------------------------------
 
-const devicePublicKeyPath =
-  process.env
-    .DEVICE_ESP32_01_PUBLIC_KEY_PATH;
 
-if (!devicePublicKeyPath) {
-  throw new Error(
-    'DEVICE_ESP32_01_PUBLIC_KEY_PATH is required'
-  );
-}
 
-if (
-  !fs.existsSync(
-    devicePublicKeyPath
-  )
-) {
-  throw new Error(
-    `Device public key not found: ${devicePublicKeyPath}`
-  );
-}
+const deviceRegistryConfigPath =
+  process.env.TRUSTIOT_DEVICE_REGISTRY_PATH
+    ? path.resolve(
+        process.env.TRUSTIOT_DEVICE_REGISTRY_PATH
+      )
+    : path.resolve(
+        'config/devices.json'
+      );
 
 const deviceRegistry =
-  loadDeviceRegistry();
+  loadDeviceRegistry(
+    deviceRegistryConfigPath
+  );
 
 console.log(
   'Trusted device registry loaded:',
@@ -970,20 +997,76 @@ const server =
         return;
       }
 
-      let body =
-        '';
+     let body =
+  '';
 
-      req.on(
-        'data',
-        chunk => {
-          body +=
-            chunk;
+let bodyBytes =
+  0;
+
+let requestTooLarge =
+  false;
+
+
+req.on(
+  'data',
+  chunk => {
+    if (
+      requestTooLarge
+    ) {
+      return;
+    }
+
+    bodyBytes +=
+      chunk.length;
+
+    if (
+      bodyBytes >
+      MAX_REQUEST_BODY_BYTES
+    ) {
+      requestTooLarge =
+        true;
+
+      res.writeHead(
+        413,
+        {
+          'Content-Type':
+            'application/json',
+
+          'Connection':
+            'close'
         }
       );
+
+      res.end(
+        JSON.stringify({
+          ok:
+            false,
+
+          error:
+            'Payload too large'
+        })
+      );
+
+      req.destroy();
+
+      return;
+    }
+
+    body +=
+      chunk.toString(
+        'utf8'
+      );
+  }
+);
 
       req.on(
         'end',
         () => {
+          if (
+  requestTooLarge
+) {
+  return;
+}
           try {
             const input =
               JSON.parse(
@@ -1068,6 +1151,20 @@ const server =
               );
             }
 
+const nowSeconds =
+  Math.floor(
+    Date.now() / 1000
+  );
+
+if (
+  reading.timestamp >
+  nowSeconds +
+    MAX_FUTURE_CLOCK_SKEW_SECONDS
+) {
+  throw new Error(
+    `Timestamp too far in the future: ${reading.timestamp}`
+  );
+}
 
             // ----------------------------------------
             // Basic numeric validation
@@ -1194,6 +1291,22 @@ const server =
   `P=${reading.pressure}`
 );
 
+
+            // ----------------------------------------
+            // Replay protection
+            // ----------------------------------------
+
+            assertFreshSequence(
+              reading.deviceId,
+              reading.sequence
+            );
+
+
+            // Commit only after ALL validation passes.
+            commitSequence(
+              reading.deviceId,
+              reading.sequence
+            );
 const sensorQuality =
   inspectSensorQuality(
     reading,
@@ -1215,22 +1328,6 @@ if (
     `threshold=${sensorQuality.threshold}`
   );
 }
-            // ----------------------------------------
-            // Replay protection
-            // ----------------------------------------
-
-            assertFreshSequence(
-              reading.deviceId,
-              reading.sequence
-            );
-
-
-            // Commit only after ALL validation passes.
-            commitSequence(
-              reading.deviceId,
-              reading.sequence
-            );
-
           console.log(
   'DEVICE_ORIGIN_VERIFIED',
   deviceLabel(

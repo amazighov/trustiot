@@ -721,6 +721,11 @@ Each layer can evolve independently while preserving explicit verification bound
 
 ## License
 
-Apache-2.0.
+TrustIoT is dual-licensed under:
 
-See the repository license terms before production or downstream redistribution.
+- MIT
+- Apache License 2.0
+
+You may use the project under the terms of either license.
+
+See `LICENSE-MIT` and `LICENSE-APACHE`.

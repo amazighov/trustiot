@@ -263,19 +263,25 @@ reference device.
 - at least 1 additional sensor or IoT use case;
 - published upload/retrieval/verification benchmark report;
 - integration tutorials;
-- evidence of at least 2 independent external reproductions;
-- documented onboarding feedback and resulting improvements.
+- documented onboarding work with at least 2 external developers or projects;
+- published reproduction instructions;
+- documented onboarding blockers, feedback, and resulting improvements.
 
 ### Acceptance Criteria
 
-- ≥2 external reproductions;
-- ≥2 real-world Filecoin-backed datasets;
+- ≥2 real-world Filecoin-backed reference datasets;
 - ≥1 additional sensor/use case;
 - benchmark results publicly available;
+- reproduction instructions publicly available;
+- documented onboarding sessions or attempts with ≥2 external developers or projects;
 - published reference artifacts independently verifiable.
 
+### Adoption Target
 
-## Budget
+The project will target at least 2 successful independent external
+reproductions during the grant period. This is an adoption success target,
+rather than a milestone payment dependency, because successful reproduction
+also depends on external participants.
 
 ## Budget
 
@@ -399,6 +405,36 @@ A public grant-period benchmark artifact will be published as part of the
 proposed milestones rather than presenting environment-specific measurements
 as fixed performance guarantees.
 
+### Public Filecoin Calibration Evidence
+
+The repository includes sanitized evidence from successful Filecoin
+Calibration runs performed through the Synapse/PDP storage path.
+
+Storage evidence:
+
+`evidence/filecoin-calibration-proof.json`
+
+This record includes:
+
+- Filecoin Calibration network;
+- a real PieceCID returned by the storage workflow;
+- 2 requested copies;
+- successful completion with zero failed attempts;
+- measured upload and retrieval latency;
+- successful storage verification.
+
+Independent retrieval evidence:
+
+`evidence/filecoin-retrieval-verification.json`
+
+This record demonstrates a Synapse retrieval where the independently
+calculated SHA-256 exactly matches the expected SHA-256 and the resulting
+verification status is `VERIFIED`.
+
+These records are published as evidence of the existing implementation.
+Grant-period benchmarks will expand this into a reproducible benchmark
+report rather than treating a single development run as a performance
+guarantee.
 
 ## Open Source Commitment
 

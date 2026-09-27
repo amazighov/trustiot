@@ -1,0 +1,17 @@
+{
+  "schema": "trustiot.filecoin.evidence.v1",
+  "description": "Successful TrustIoT Synapse/PDP storage and retrieval verification on Filecoin Calibration.",
+  "network": "calibration",
+  "deviceId": "esp32-01",
+  "sensor": "bme280",
+  "readingCount": 10,
+  "pieceCid": "bafkzcibdwehqopkvn744ecbpgs2j3gryylcqaven4x7aa2gcab67gywotwmpadil",
+  "requestedCopies": 2,
+  "complete": true,
+  "failedAttempts": 0,
+  "uploadLatencyMs": 231606,
+  "retrievalLatencyMs": 5221,
+  "totalLatencyMs": 236827,
+  "storageVerified": true,
+  "recordedAt": "2026-08-22T10:58:06.942Z"
+}

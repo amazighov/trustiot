@@ -1,0 +1,12 @@
+{
+  "schema": "trustiot.filecoin.verification.evidence.v1",
+  "description": "Independent integrity verification after Synapse retrieval.",
+  "network": "calibration",
+  "storageDriver": "synapse",
+  "pieceCid": "bafkzcibdzqoaq72z3c5edzjdj3hg26ge4ezij66hv3xoruvtszund3arcrxvi7zr",
+  "verificationSource": "synapse-retrieval",
+  "expectedSha256": "15d6eca79b76f6a7dde9319234662f15d8d1eeb5eaeed1b398e53db3b2ce17f5",
+  "actualSha256": "15d6eca79b76f6a7dde9319234662f15d8d1eeb5eaeed1b398e53db3b2ce17f5",
+  "verificationStatus": "VERIFIED",
+  "verifiedAt": "2026-08-16T17:02:01.913Z"
+}

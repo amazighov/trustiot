@@ -98,6 +98,34 @@ export class PersistentRetryQueue {
 
   return job;
 }
+
+  _update(
+    id,
+    changes
+  ) {
+    const job =
+      this.get(id);
+
+    if (!job) {
+      return null;
+    }
+
+    return this._write({
+      ...job,
+      ...changes,
+
+      // Queue identity and source artifact are immutable.
+      id:
+        job.id,
+
+      filePath:
+        job.filePath,
+
+      createdAt:
+        job.createdAt
+    });
+  }
+
   // --------------------------------------------------
   // Create / read jobs
   // --------------------------------------------------

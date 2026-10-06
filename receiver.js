@@ -1,7 +1,9 @@
 import dotenv from 'dotenv';
 
 dotenv.config({
-  override: true,
+  // Explicit process environment set by the secure launchers must win over
+  // safe defaults stored in .env.
+  override: false,
   quiet: true
 });
 
@@ -22,6 +24,9 @@ import {
 import {
   PersistentRetryQueue
 } from './src/private/retryQueue.js';
+import {
+  WmcAutoCommitPipeline
+} from './src/private/wmcAutoCommitPipeline.js';
 
 import {
   spawn
@@ -63,6 +68,48 @@ const MAX_RETRIES = 5;
 const RETRY_DELAY_MS = 30000;
 const MAX_REQUEST_BODY_BYTES =
   16 * 1024;
+
+const AUTO_SYNAPSE_FABRIC =
+  ![
+    '0',
+    'false',
+    'no',
+    'off'
+  ].includes(
+    String(
+      process.env
+        .TRUSTIOT_AUTO_SYNAPSE_FABRIC ??
+        'true'
+    )
+      .trim()
+      .toLowerCase()
+  );
+
+const AUTO_WMC =
+  [
+    '1',
+    'true',
+    'yes',
+    'on'
+  ].includes(
+    String(
+      process.env
+        .TRUSTIOT_AUTO_WMC ??
+        'false'
+    )
+      .trim()
+      .toLowerCase()
+  );
+
+if (
+  AUTO_WMC &&
+  !process.env.WMC_PRIVATE_KEY
+) {
+  throw new Error(
+    'WMC_PRIVATE_KEY is required when TRUSTIOT_AUTO_WMC=true'
+  );
+}
+
 const batchesDir =
   process.env.TRUSTIOT_BATCHES_DIR
     ? path.resolve(
@@ -223,10 +270,25 @@ function canonicalReading(
 
 function runNodeScript(
   scriptPath,
-  args = []
+  args = [],
+  {
+    includeWmcPrivateKey =
+      false
+  } = {}
 ) {
   return new Promise(
     resolve => {
+      const childEnv = {
+        ...process.env
+      };
+
+      if (
+        !includeWmcPrivateKey
+      ) {
+        delete childEnv
+          .WMC_PRIVATE_KEY;
+      }
+
       const child =
         spawn(
           process.execPath,
@@ -239,7 +301,7 @@ function runNodeScript(
               'inherit',
 
             env:
-              process.env
+              childEnv
           }
         );
 
@@ -287,6 +349,33 @@ function runNodeScript(
   );
 }
 
+const wmcAutoCommitPipeline =
+  AUTO_WMC
+    ? new WmcAutoCommitPipeline({
+        queueDir:
+          process.env.TRUSTIOT_WMC_QUEUE_DIR
+            ? path.resolve(
+                process.env.TRUSTIOT_WMC_QUEUE_DIR
+              )
+            : path.resolve(
+                'data/private/wmc-queue'
+              ),
+
+        runCommit:
+          filePath =>
+            runNodeScript(
+              'src/wmc-commit-batch.js',
+              [
+                filePath
+              ],
+              {
+                includeWmcPrivateKey:
+                  true
+              }
+            )
+      })
+    : null;
+
 
 // ----------------------------------------------------
 // Queue new batch
@@ -302,6 +391,24 @@ function enqueueBatch(
       attempt
     );
 
+  console.log(
+    'Persisted queue job:',
+    persistentJob.id
+  );
+
+  if (
+    !AUTO_SYNAPSE_FABRIC
+  ) {
+    console.log(
+      'Automatic Synapse + Fabric pipeline disabled; batch preserved as PENDING:',
+      path.basename(
+        filePath
+      )
+    );
+
+    return;
+  }
+
   processingQueue.push({
     filePath,
 
@@ -310,11 +417,6 @@ function enqueueBatch(
     jobId:
       persistentJob.id
   });
-
-  console.log(
-    'Persisted queue job:',
-    persistentJob.id
-  );
 
   console.log(
     'Batch queued for TrustIoT processing:',
@@ -453,6 +555,14 @@ function createBatch() {
 
   // Artifact safely persisted.
   readings = [];
+
+  if (
+    AUTO_WMC
+  ) {
+    wmcAutoCommitPipeline.enqueue(
+      filepath
+    );
+  }
 
   enqueueBatch(
     filepath
@@ -902,6 +1012,17 @@ function recoverPersistentJobs() {
   const jobs =
     persistentQueue
       .recoverPending();
+
+  if (
+    !AUTO_SYNAPSE_FABRIC
+  ) {
+    console.log(
+      'Automatic Synapse + Fabric pipeline disabled;',
+      `${jobs.length} persistent queue job(s) preserved without processing`
+    );
+
+    return;
+  }
 
   if (
     jobs.length === 0
@@ -1474,9 +1595,23 @@ server.listen(
     );
 
     console.log(
-      'Automatic Synapse + Fabric proof pipeline enabled'
+      AUTO_SYNAPSE_FABRIC
+        ? 'Automatic Synapse + Fabric proof pipeline enabled'
+        : 'Automatic Synapse + Fabric proof pipeline disabled'
+    );
+
+    console.log(
+      AUTO_WMC
+        ? 'Automatic WMC commitment pipeline enabled'
+        : 'Automatic WMC commitment pipeline disabled'
     );
 
     recoverPersistentJobs();
+
+    if (
+      AUTO_WMC
+    ) {
+      wmcAutoCommitPipeline.recover();
+    }
   }
 );

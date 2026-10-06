@@ -1,5 +1,16 @@
-import test from 'node:test';
+import {
+  after,
+  before,
+  test
+} from 'node:test';
 import assert from 'node:assert/strict';
+import {
+  mkdtemp,
+  rm,
+  writeFile
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import {
   generateSigningKeyPair,
@@ -18,6 +29,30 @@ import {
   setSignerStatus,
   resetSignerRegistry
 } from '../src/core/signerRegistry.js';
+
+let fixtureDirectory;
+
+before(async () => {
+  const { publicKeyPem } = generateSigningKeyPair();
+  fixtureDirectory = await mkdtemp(
+    join(tmpdir(), 'trustiot-signer-registry-')
+  );
+  const publicKeyPath = join(
+    fixtureDirectory,
+    'gateway-public.pem'
+  );
+  await writeFile(publicKeyPath, publicKeyPem, 'utf8');
+  process.env.TRUSTIOT_GATEWAY_PUBLIC_KEY_PATH =
+    publicKeyPath;
+});
+
+after(async () => {
+  delete process.env.TRUSTIOT_GATEWAY_PUBLIC_KEY_PATH;
+  await rm(fixtureDirectory, {
+    recursive: true,
+    force: true
+  });
+});
 
 test('accepts a valid Ed25519 signed manifest', () => {
   const {
@@ -223,10 +258,12 @@ test('trusted signer registry rejects unknown signer', async () => {
     () =>
       getTrustedSigner(
         'unknown-gateway'
-      ),
+    ),
     /Unknown signer: unknown-gateway/
   );
-  test('trusted signer registry rejects revoked signer', async () => {
+});
+
+test('trusted signer registry rejects revoked signer', async () => {
   resetSignerRegistry();
 
   try {
@@ -262,5 +299,4 @@ test('trusted signer registry rejects unknown signer', async () => {
     isTrustedSigner('gateway-farm-001'),
     true
   );
-});
 });

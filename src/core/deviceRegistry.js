@@ -29,7 +29,8 @@ export async function getTrustedDevice(
 
   const publicKeyPem =
     await readFile(
-      device.publicKeyPath,
+      process.env.DEVICE_ESP32_01_PUBLIC_KEY_PATH ||
+        device.publicKeyPath,
       'utf8'
     );
 

@@ -23,6 +23,25 @@ IoT pipelines commonly need to answer several different questions:
 
 TrustIoT separates these concerns rather than placing raw sensor streams directly on-chain.
 
+### World Mobile Chain integration
+
+TrustIoT now includes a WMC-native ledger path for device identity registration
+and telemetry-batch commitments. It writes only Keccak-256 identity and batch
+commitments plus minimal provenance metadata; raw readings stay off-chain.
+The path is deliberately independent from Filecoin/OORT storage and the legacy
+storage SHA-256 field.
+
+```text
+telemetry batch
+  -> canonical WMC payload
+  -> Ethereum Keccak-256 commitment
+  -> World Mobile Chain commitment contract
+  -> independent local/on-chain verification
+```
+
+See [docs/WMC_INTEGRATION.md](docs/WMC_INTEGRATION.md) for contract deployment,
+configuration, CLI commands, security guidance, and tests.
+
 ---
 
 ## Architecture

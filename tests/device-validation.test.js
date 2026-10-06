@@ -1,6 +1,20 @@
-import test from 'node:test';
+import {
+  after,
+  before,
+  test
+} from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import {
+  mkdtemp,
+  rm,
+  writeFile
+} from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import {
+  generateSigningKeyPair
+} from '../src/core/signing.js';
 
 import {
   signDeviceReading
@@ -10,11 +24,33 @@ import {
   validateDeviceReading
 } from '../src/core/deviceValidation.js';
 
-const privateKeyPem =
-  await readFile(
-    'data/device-keys/esp32-01-private.pem',
-    'utf8'
+const {
+  privateKeyPem,
+  publicKeyPem
+} = generateSigningKeyPair();
+
+let fixtureDirectory;
+
+before(async () => {
+  fixtureDirectory = await mkdtemp(
+    join(tmpdir(), 'trustiot-device-validation-')
   );
+  const publicKeyPath = join(
+    fixtureDirectory,
+    'esp32-01-public.pem'
+  );
+  await writeFile(publicKeyPath, publicKeyPem, 'utf8');
+  process.env.DEVICE_ESP32_01_PUBLIC_KEY_PATH =
+    publicKeyPath;
+});
+
+after(async () => {
+  delete process.env.DEVICE_ESP32_01_PUBLIC_KEY_PATH;
+  await rm(fixtureDirectory, {
+    recursive: true,
+    force: true
+  });
+});
 
 test(
   'accepts a signed reading from a trusted ESP32',

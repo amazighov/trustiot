@@ -1,0 +1,21 @@
+{
+  "schema": "trustiot.sensor.batch.v1",
+  "createdAt": "2026-10-04T12:00:10.000Z",
+  "deviceId": "wmc-demo-device-001",
+  "sensor": "environmental",
+  "batchStartedAt": "2026-10-04T12:00:00.000Z",
+  "batchEndedAt": "2026-10-04T12:00:10.000Z",
+  "readingCount": 2,
+  "readings": [
+    {
+      "timestamp": "2026-10-04T12:00:00.000Z",
+      "temperatureC": 22.4,
+      "humidityPct": 48.1
+    },
+    {
+      "timestamp": "2026-10-04T12:00:10.000Z",
+      "temperatureC": 22.5,
+      "humidityPct": 47.9
+    }
+  ]
+}

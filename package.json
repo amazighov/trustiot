@@ -9,7 +9,7 @@
     "test": "npm run test:unit",
     "test:unit": "node --test tests/core.test.js tests/security.test.js tests/device-security.test.js tests/device-signing.test.js tests/device-validation.test.js",
     "test:attestation": "node test-device-attestation.js && node test-device-replay.js",
-    "test:reliability": "node test-sensor-quality.js && node test-retry-queue-corruption.js && node --test tests/receiver-hardening.test.js",
+    "test:reliability": "node test-sensor-quality.js && node test-retry-queue-corruption.js && node --test tests/receiver-hardening.test.js tests/retry-queue-state.test.js",
     "test:trustiot": "npm run test:unit && npm run test:attestation && npm run test:reliability",
     "test:integration": "node --test tests/fabric-replay.integration.test.js",
     "test:synapse": "node --test tests/synapse-storage.integration.test.js",
@@ -17,12 +17,26 @@
     "verify:trustiot": "node src/verify-trustiot.js",
     "fabric:read": "node src/fabric-read.js",
     "fabric:register": "node src/fabric-register.js",
-    "fabric:status": "node src/fabric-verify-status.js"
+    "fabric:status": "node src/fabric-verify-status.js",
+    "wmc:register-device": "node src/wmc-register-device.js",
+    "wmc:testnet-check": "node src/wmc-testnet-check.js",
+    "wmc:deploy-testnet": "node src/wmc-deploy-testnet.js",
+    "wmc:verify-deployment": "node src/wmc-verify-deployment.js",
+    "wmc:prepare-batch": "node src/wmc-prepare-batch.js",
+    "wmc:commit-batch": "node src/wmc-commit-batch.js",
+    "wmc:verify": "node src/verify-wmc.js",
+    "compile:wmc": "hardhat build",
+    "test:wmc:unit": "node --test tests/wmc-*.test.js",
+    "test:wmc:contracts": "hardhat test solidity",
+    "test:wmc": "npm run test:wmc:unit && npm run test:wmc:contracts"
   },
   "engines": {
     "node": ">=24"
   },
   "license": "(MIT OR Apache-2.0)",
+  "devDependencies": {
+    "hardhat": "3.18.1"
+  },
   "dependencies": {
     "@filoz/synapse-sdk": "^1.1.1",
     "@grpc/grpc-js": "^1.14.4",

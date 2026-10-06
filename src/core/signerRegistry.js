@@ -33,7 +33,8 @@ export async function getTrustedSigner(
 
   const publicKeyPem =
     await readFile(
-      signer.publicKeyPath,
+      process.env.TRUSTIOT_GATEWAY_PUBLIC_KEY_PATH ||
+        signer.publicKeyPath,
       'utf8'
     );
 

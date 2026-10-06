@@ -1,23 +1,19 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+
+import {
+  generateSigningKeyPair
+} from '../src/core/signing.js';
 
 import {
   signDeviceReading,
   verifyDeviceReading
 } from '../src/core/deviceSigning.js';
 
-const privateKeyPem =
-  await readFile(
-    'data/device-keys/esp32-01-private.pem',
-    'utf8'
-  );
-
-const publicKeyPem =
-  await readFile(
-    'data/device-keys/esp32-01-public.pem',
-    'utf8'
-  );
+const {
+  privateKeyPem,
+  publicKeyPem
+} = generateSigningKeyPair();
 
 test(
   'accepts a valid signed ESP32 reading',

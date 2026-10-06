@@ -1,7 +1,12 @@
 node_modules/
+.hardhat/
 
 .env
 *.env
+*.pem
+*.key
+*.p12
+*.pfx
 
 data/*
 !data/.gitkeep
@@ -9,7 +14,6 @@ data/*
 *.log
 .DS_Store
 
-artifacts/
 artifacts/
 data/private/device-keys/
 # Local hardware test helpers
